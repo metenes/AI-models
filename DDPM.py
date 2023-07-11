@@ -13,7 +13,7 @@ from torchvision.transforms import ToTensor
 # Batch
 from torch.utils.data import DataLoader
 from torch.utils.data.dataloader import T
-
+""" 
 # setup train data
 train_data = datasets.FashionMNIST(root = "data",
                                    train = True,
@@ -30,11 +30,26 @@ test_data = datasets.FashionMNIST(root = "data",
                                    transform = torchvision.transforms.ToTensor(),
                                    target_transform = None
                                   )
+"""
+
+train_data = torchvision.datasets.FGVCAircraft( root = "data", 
+                                                split = "train", 
+                                                transform= torchvision.transforms.ToTensor(),
+                                                target_transform= None,
+                                                download= True )
+
+
+test_data  = torchvision.datasets.FGVCAircraft( root = "data", 
+                                                split = "test", 
+                                                transform= torchvision.transforms.ToTensor(),
+                                                target_transform= None, 
+                                                download= True )
 
 
 # visualize the data
 image, label = train_data[1]
-plt.imshow(image.squeeze())
+#plt.imshow(image.squeeze())
+plt.imshow(image.permute(1,2,0))
 
 print(image.shape)
 
@@ -101,6 +116,20 @@ sqrt_recip_alphas = torch.sqrt(1.0 / alphas)
 posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
 # %%
+# Data visualizer for datasets
+def visualize_dataset(dataset, num_images = 20): 
+    fig = plt.figure(figsize=(20, 20))
+    for idx in range(0,num_images): 
+        data = dataset[idx]
+        ax = fig.add_subplot(1, num_images, idx+1)
+        image,label = data
+        print(f"data shape {image.shape}")
+        ax.imshow( image.permute(1, 2, 0) )
+    plt.show()
+
+visualize_dataset(train_data)
+
+# %%
 import torch 
 import numpy as np
 
@@ -115,6 +144,7 @@ def load_transformed_dataset():
                          transforms.Lambda(lambda t : (t*2)-1)]     # Apply a user-defined lambda as a transform. lambd (function) – Lambda/function to be used for transform.
     
     data_transformers = transforms.Compose(data_transformers)
+    """" 
     # setup train data
     train = datasets.FashionMNIST(root = "data",
                                        train = True,
@@ -123,7 +153,6 @@ def load_transformed_dataset():
                                        target_transform = None
                                       )
 
-
     # setup train data
     test = datasets.FashionMNIST(root = "data",
                                       train = False,
@@ -131,9 +160,24 @@ def load_transformed_dataset():
                                       transform = data_transformers,
                                       target_transform = None
                                     )
-    print(test) 
+    """
 
+    train = torchvision.datasets.FGVCAircraft( root = "data", 
+                                                split = "train", 
+                                                transform= data_transformers,
+                                                target_transform= None,
+                                                download= True )
+
+
+    test = torchvision.datasets.FGVCAircraft( root = "data", 
+                                                split = "test", 
+                                                transform= data_transformers,
+                                                target_transform= None, 
+                                                download= True )
+
+    print(test) 
     return torch.utils.data.ConcatDataset([train, test])
+
 def show_tensor_image(image): 
     reverse_transforms = transforms.Compose([
                         transforms.Lambda(lambda t : (t+1)/2), 
@@ -149,6 +193,9 @@ def show_tensor_image(image):
 
 data = load_transformed_dataset()
 dataloader = DataLoader(data, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
+visualize_dataset(data)
+
+
 # %% 
 # Simulate forward diffusion
 image = next(iter(dataloader))[0]
@@ -164,6 +211,7 @@ for idx in range(0, T, stepsize):
     img, noise = forward_diffusion_sample(image, t)
     show_tensor_image(img)
  
+
 # %%
 # U-net Arthitecture \ Backward
 
@@ -181,14 +229,14 @@ class Block(nn.Module):
             self.transform = nn.ConvTranspose2d(out_ch, out_ch, 4,2,1)
         else: 
             self.conv1 = nn.Conv2d(in_ch, out_ch, 3, padding = 1)
-            self.transform = nn.Conv2d(out_ch, out_ch, 4, 2, 1)
+            self.transform = nn.Conv2d(out_ch, out_ch, 4,2,1)
         
         self.conv2 = nn.Conv2d(out_ch, out_ch, 3, padding=1)
         self.bnorm1 = nn.BatchNorm2d(out_ch)
         self.bnorm2 = nn.BatchNorm2d(out_ch)
         self.relu  = nn.ReLU()
         
-    def forward(self, x, t, ):
+    def forward(self, x, t):
         # First Conv
         h = self.bnorm1(self.relu(self.conv1(x)))
         # Time embedding
@@ -221,10 +269,10 @@ class SimpleUnet(nn.Module):
     """" simple, constant layerd unet artitecture """
     def __init__(self): 
         super().__init__()
-        image_channels = 1 # RGB
+        image_channels = 3 # RGB
         down_channels = (64, 128, 256, 512, 1024)
         up_channels = (1024, 512, 256, 128, 64)
-        out_dim = 1 # RGB
+        out_dim = 3 # RGB
         # in_dim and out_dim must be same 
         # " need to give what you take"
         time_emb_dim = 32
@@ -251,6 +299,7 @@ class SimpleUnet(nn.Module):
         # Embedd time --> transformator 
         t = self.time_mlp(timestep)
         # Initial conv
+        print(x.shape)
         x = self.conv0(x)
         # Unet with time embeddings
         residual_inputs = [] # store the result of every forward process / noised image
@@ -259,20 +308,23 @@ class SimpleUnet(nn.Module):
             residual_inputs.append(x)
         for up in self.ups : 
             residual_x = residual_inputs.pop()
-             # Add residual x as additional channels --> look again 
+             # Add residual x as additional channels --> copy and crop lines between two side of the U net layers
+             # this is why there is mult with 2 in up convlations it double the size with cat
             x = torch.cat((x, residual_x), dim=1)           
             x = up(x, t)
         return self.output(x)
 
 # Initialize the model 
-model = SimpleUnet()
-model.state_dict
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model = SimpleUnet().to(device)
 
 #%%
 
 # loss function 
 def get_loss(model, x_0, t): 
-    x_noisy, noise = forward_diffusion_sample(x_0, t)
+    # device agnostic code
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    x_noisy, noise = forward_diffusion_sample(x_0, t,device=device)
     # giving the noised version of the x_0 to the Neural Networlk to make predictions about the noise
     noise_pred = model(x_noisy, t) # predict the noise from noised version of x_0 at timestep t
     return F.l1_loss(noise, noise_pred) # variable loss function 
@@ -286,6 +338,7 @@ def sample_timestep(x, t):
     the denoised image. 
     Applies noise to this image, if we are not in the last step yet.
     """
+    print(x.shape)
     betas_t = get_index_from_list(betas, t, x.shape)
     sqrt_one_minus_alphas_cumprod_t = get_index_from_list(
         sqrt_one_minus_alphas_cumprod, t, x.shape
@@ -299,7 +352,6 @@ def sample_timestep(x, t):
     posterior_variance_t = get_index_from_list(posterior_variance, t, x.shape)
     
     if t == 0:
-        # As pointed out by Luis Pereira (see YouTube comment)
         # The t's are offset from the t's in the paper
         return model_mean
     else:
@@ -310,9 +362,10 @@ def sample_timestep(x, t):
 def sample_plot_image():
     # Sample noise
     img_size = IMG_SIZE
-    img = torch.randn((1, 1, img_size, img_size), device=device)
+    img = torch.randn((1, 3, img_size, img_size), device=device)
     plt.figure(figsize=(15,15))
     plt.axis('off')
+
     num_images = 10
     stepsize = int(T/num_images)
 
@@ -342,7 +395,7 @@ for epoch in range(epochs):
       optimizer.zero_grad()
 
       t = torch.randint(0, T, (BATCH_SIZE,), device = device).long()
-      loss = get_loss(model, batch[0], t)
+      loss = get_loss(model, batch[0].to(device), t)
       loss.backward()
       optimizer.step()
 
