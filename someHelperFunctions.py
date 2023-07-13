@@ -63,3 +63,50 @@ train_data_initial = list_tensor_imgs[0:int(len(list_tensor_imgs)*(1/3))]
 print(len(train_data_initial))
 test_data_initial = list_tensor_imgs[int(len(list_tensor_imgs)*(1/3)):]
 print(len(test_data_initial))
+
+
+# %%
+# Custom Datasets 
+import os
+import pathlib
+import torch
+from PIL import Image
+from torch.utils.data import Dataset
+from torchvision import transforms
+from typing import Tuple, Dict, List
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms, utils
+
+# Custom Dataset 
+class CustomDataset(Dataset):
+    def __init__(self, images, transform=None):
+        self.images = images
+        self.transform = transform
+    def __getitem__(self, idx):
+        image = self.images[idx]      
+        return image
+    def __len__(self):
+        return len(self.images)
+
+# custom dataset for the niffty file MRI 
+custom_dataset = CustomDataset(list_tensor_imgs)
+
+# Data visualizer for datasets
+def visualize_dataset(dataset, num_images = 20): 
+    fig = plt.figure(figsize=(20, 20))
+    for idx in range(0,num_images): 
+        data = dataset[idx]
+        ax = fig.add_subplot(1, num_images, idx+1)
+        # print(f"data shape {data.shape}") # Debug 
+        ax.imshow(data[:, :, data.shape[2] // 2].T, cmap='Greys_r')
+    plt.show()
+
+visualize_dataset(custom_dataset)
+
+# load dataset to the dataloader
+BATCH_SIZE = 128
+dataloader = DataLoader(custom_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
+
