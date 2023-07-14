@@ -110,3 +110,99 @@ visualize_dataset(custom_dataset)
 BATCH_SIZE = 128
 dataloader = DataLoader(custom_dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
 
+# %%
+# Sampling
+@torch.no_grad()
+def sample_timestep(x, t):
+    """
+    Calls the model to predict the noise in the image and returns 
+    the denoised image. 
+    Applies noise to this image, if we are not in the last step yet.
+    """
+    # print(x.shape)
+    betas_t = get_index_from_list(betas, t, x.shape)
+    sqrt_one_minus_alphas_cumprod_t = get_index_from_list(
+        sqrt_one_minus_alphas_cumprod, t, x.shape
+    )
+    sqrt_recip_alphas_t = get_index_from_list(sqrt_recip_alphas, t, x.shape)
+    
+    # Call model (current image - noise prediction)
+    model_mean = sqrt_recip_alphas_t * (
+        x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t
+    )
+    posterior_variance_t = get_index_from_list(posterior_variance, t, x.shape)
+    
+    if t == 0:
+        # The t's are offset from the t's in the paper
+        return model_mean
+    else:
+        noise = torch.randn_like(x)
+        return model_mean + torch.sqrt(posterior_variance_t) * noise 
+
+@torch.no_grad()
+def sample_plot_image():
+    # Sample noise
+    img_size = IMG_SIZE
+    img = torch.randn((1, 1, img_size, img_size), device=device)
+    plt.figure(figsize=(15,15))
+    plt.axis('off')
+
+    num_images = 10
+    stepsize = int(T/num_images)
+
+    for i in range(0,T)[::-1]:
+        t = torch.full((1,), i, device=device, dtype=torch.long)
+        img = sample_timestep(img, t)
+        # Edit: This is to maintain the natural range of the distribution
+        img = torch.clamp(img, -1.0, 1.0)
+        if i % stepsize == 0:
+            plt.subplot(1, num_images, int(i/stepsize)+1)
+            show_tensor_image(img.detach().cpu())
+    plt.show() 
+
+
+# %%
+# Training / Save
+from torch.optim import Adam
+
+def saveCheckPoint(state, filename = "my_checkpoint.pth.tar"): 
+    print("-- Checkpoint reached --")
+    torch.save(state,filename)
+
+def loadCheckPoint(state):
+    print(" Checkpoint loading ")
+    model.load_state_dict(state['state_dict'])
+    optimizer.load_state_dict(state['optimizer'])
+
+
+# device agnostic code
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model.to(device)
+optimizer = Adam(model.parameters(), lr=0.001)
+epochs = 100
+
+load_model = False
+load_model_filename = "my_checkpoint.pth.tar"
+
+if(load_model == True): 
+    loadCheckPoint(torch.load(load_model_filename))
+
+for epoch in range(epochs):
+    for step, batch in enumerate(tensor_littel_all_images_dataloader):
+      optimizer.zero_grad()
+
+      t = torch.randint(0, T, (1,), device = device).long()
+      loss = get_loss(model, batch.to(device), t)
+      loss.backward()
+      optimizer.step()
+
+      if step % 16 == 0 :
+        # save the model
+        checkpoint = {'state_dict' : model.state_dict(), 
+                      'optimizer': optimizer.state_dict() }
+        saveCheckPoint(checkpoint)
+
+        print(f"Epoch {epoch} | step {step:03d} Loss: {loss.item()} ")
+        sample_plot_image()
+        # andb.log({"epoch": epoch, "loss": loss}, step=step)
+
