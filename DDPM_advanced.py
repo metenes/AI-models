@@ -82,11 +82,11 @@ print(len(test_data_initial))
 print(f"size of a volume {len(list_tensor_volumes[0])}" )
 plt.imshow(list_tensor_volumes[0][128], cmap='Greys_r')
 #%% 
-""" 
+""" """
 # WandB
 # start a new wandb run to track this script
 import wandb
-wandb.login() 
+
 wandb.init(
     # set the wandb project where this run will be logged
     project="DDPM initial-II",
@@ -99,7 +99,6 @@ wandb.init(
     "epochs": 100,
     }
 )
-"""
 # %%
 # Custom Datasets 
 import os
