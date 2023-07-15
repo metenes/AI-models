@@ -4,6 +4,9 @@ Some AI models which I have implemented to enforce my coding skills
 Diffusion probabilistic models:
 "A diffusion probabilistic model is a parameterized Markov chain trained using variational inference to produce samples matching the data after finite time" or Diffusion probabilistic models are parameterized Markov chains models trained to gradually denoise data.
 Simply put, diffusion models can generate data similar to the ones they are trained on. If the model trains on images of cats, it can generate similar realistic images of cats. In recent years DDPMs are outperforming the GANs in many de-noising applications
+Some Examples obtained by slightly adjusted DDPM model on  torchvision.datasets.FGVCAircraft dataset: 
+![image](https://github.com/metenes/AI-models/assets/91368249/17d084db-106a-42ce-bea4-312174c1c03e)
+![image](https://github.com/metenes/AI-models/assets/91368249/c7637224-a512-4cfb-835b-50fc5769ca2c)
 
 
 ## GANs ( Generative adversarial network ): 
