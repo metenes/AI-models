@@ -7,6 +7,7 @@ Simply put, diffusion models can generate data similar to the ones they are trai
 Some Examples obtained by slightly adjusted DDPM model on  torchvision.datasets.FGVCAircraft dataset: 
 ![image](https://github.com/metenes/AI-models/assets/91368249/17d084db-106a-42ce-bea4-312174c1c03e)
 ![image](https://github.com/metenes/AI-models/assets/91368249/c7637224-a512-4cfb-835b-50fc5769ca2c)
+![image](https://github.com/metenes/AI-models/assets/91368249/60daf6fe-3b72-4e52-a111-7afb397dcfb5)
 
 
 ## GANs ( Generative adversarial network ): 
