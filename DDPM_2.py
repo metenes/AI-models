@@ -176,59 +176,6 @@ for idx, data in enumerate(test_data):
     plt.imshow(image.permute(1,2,0))
 """
 
-#%% 
-
-from torch.optim import Adam
-from tqdm import tqdm
-
-# DDPM class 
-class DDPM: 
-    def __init__( self, 
-                  timestep = 1000,
-                  betas_start = 3e-4,
-                  betas_end = 0.02,
-                  img_size = 64, 
-                  device = "cpu" ):
-        # selfs
-        self.timestep = timestep
-        self.betas_start = betas_start
-        self.betas_end = betas_end
-        self.img_size = img_size
-        self.device = device
-        # pre_defined varaibles 
-        self.betas = linear_beta_schedule(self.betas_start, self.betas_end, timestep).to(self.device)
-        self.alphas = 1 - self.betas
-        self.alphas_cumprod = torch.cumprod(self.alphas)
-
-        def linear_beta_schedule(betas_start, betas_end, timestep ):
-          return torch.linspace(betas_start, betas_end, timestep )
-        
-        def noise_image(self, x0, t): 
-          # In this option we use cumulative preoduct to get the noised image in one time
-          # get random noise 
-          noise = torch.rand_like(x0)
-          sqrt_alphas_cumprod = torch.sqrt(self.alphas_cumprod)
-          sqrt_one_minus_alphas_cumprod = torch.sqrt(1. - self.alphas_cumprod)
-          # reparm trick 
-          return sqrt_alphas_cumprod.to(device)*x0.to(device) + sqrt_one_minus_alphas_cumprod.to(device)*noise.to(device), noise.to(device)
-        def sample_rand_timestep(self, n): 
-           return torch.randint(low= 1, high = self.timestep, size=(n,))
-        
-        def sample_img(self, model, n): 
-          # produce n new generated images 
-          # set model to evualte mode
-          model.eval()
-          with torch.no_grad(): 
-            # n : number of gaussian distr
-            # c : number of channels 
-            c = 3
-            x_T = torch.randn(n, c, self.img_size, self.img_size).to(self.device)
-            for i in tgdm(range(1,self.timestep)): 
-
-# %%
-          
-          
-          
           
           
 
