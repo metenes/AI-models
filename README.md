@@ -9,6 +9,6 @@ Some Examples obtained by slightly adjusted DDPM model on  torchvision.datasets.
 ![image](https://github.com/metenes/AI-models/assets/91368249/c7637224-a512-4cfb-835b-50fc5769ca2c)
 ![image](https://github.com/metenes/AI-models/assets/91368249/60daf6fe-3b72-4e52-a111-7afb397dcfb5)
 
-
+Nevertheless, this model is not suitable for more complex images than standar MNIST or CIFAR100 datasets,
 ## GANs ( Generative adversarial network ): 
 In a GAN, two neural networks contest with each other in the form of a zero-sum game, where one agent's gain is another agent's loss. GANs has two neural networks. One is Discriminator and the other one is Generator. Generator generates fake images and Discriminator discriminates between the fake and given real image. If the generator can generate an image which the discriminator is not able to separate between the real and fake, we call the neural network fully trained. Generators receive a random (gaussian distribution ) image and generate the fake image. 
