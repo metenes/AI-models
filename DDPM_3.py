@@ -1,9 +1,7 @@
 #%%
-
 # Import Pytorch
 import torch
 from torch import nn
-import numpy as np
 # Import plot
 import matplotlib.pyplot as plt
 # Import computer vision
@@ -14,37 +12,171 @@ from torchvision.transforms import ToTensor
 # Batch
 from torch.utils.data import DataLoader
 from torch.utils.data.dataloader import T
-import torch.nn.functional as F
-from PIL import Image
-# tqdm 
-from torch.optim import Adam
-from tqdm import tqdm
+import os 
+# Image settings
+from nilearn import plotting
+import pylab as plt
+import numpy as np
+import nibabel as nb
 
+# Access data test directly from second folder
+img = nb.load(filename = "YOUR_FILE_NAME")
+print(img.shape)
+# shape of one the images is (256, 320, 320)
+print(f"shows the type of the data on disk {img.get_data_dtype()}")
+# get the numpy array with fdata()
+data_nummpy = img.get_fdata()
+# display the nii.gz 
+plt.imshow(data_nummpy[:, :, data_nummpy.shape[2] // 2].T, cmap='Greys_r')
+print(data_nummpy.shape)
 
+# %%
+# Display all the nii.gz images in dataset
+def prep_data_from_dir(file_dir_path, num_samples=20, cols=4):
+    """ Plots some samples from the dataset """
+    i = 0 
+    list_tensor_imgs = []
+    # list_img_paths = []
+    for filename in os.listdir(file_dir_path):
+        if i == num_samples : 
+            break
+        if filename.endswith('.nii.gz'): # niffy 
+            nb.load( os.path.join(file_dir_path, filename) ) 
+            print(os.path.join(file_dir_path, filename)) # file names
+            data_nummpy = img.get_fdata()
+            list_tensor_imgs.append(torch.from_numpy(data_nummpy)) # save the numpy to torch tensor
+            # list_img_paths.append(os.path.join(file_dir_path, filename)) # save the file_path
+            i += 1 
+    return list_tensor_imgs
+    
+# Display all the nii.gz images in dataset
+def display_data_from_dir(file_dir_path, num_samples=20, cols=4):
+    """ Plots some samples from the dataset """
+    plt.figure(figsize=(15,15)) # figure size for display
+    i = 0 
+    for filename in os.listdir(file_dir_path):
+        if i == num_samples : 
+            break
+        if filename.endswith('.nii.gz'): # niffy 
+            nb.load( os.path.join(file_dir_path, filename) ) 
+            print(os.path.join(file_dir_path, filename)) # file names
+            data_nummpy = img.get_fdata()
+            plt.subplot(int(num_samples/cols) + 1, cols, i + 1)
+            plt.imshow(data_nummpy[:, :, data_nummpy.shape[2] // 2].T, cmap='Greys_r')
+            i += 1 
 
+file_dir_path = "YOUR_FILE_NAME"
+
+list_tensor_volumes = prep_data_from_dir(file_dir_path, 100)
+display_data_from_dir(file_dir_path, 20)
+
+print(list_tensor_volumes[0].dtype) # dtype = float64 , type = torch.float64 tensor
+print(len(list_tensor_volumes))
+
+# split array 
+train_data_initial = list_tensor_volumes[0:int(len(list_tensor_volumes)*(2/3))]
+print(len(train_data_initial))
+test_data_initial = list_tensor_volumes[int(len(list_tensor_volumes)*(2/3)):]
+print(len(test_data_initial))
+
+print(f"size of a volume {len(list_tensor_volumes[0])}" )
+plt.imshow(list_tensor_volumes[0][128], cmap='Greys_r')
 #%% 
-# Datasets 
+""" """
+# WandB
+# start a new wandb run to track this script
+import wandb
 
-train_data = torchvision.datasets.CIFAR10(root = ".", 
-                                          train= True, 
-                                          transform= torchvision.transforms.ToTensor(),
-                                          download= True,
-                                          target_transform=None)
+wandb.init(
+    # set the wandb project where this run will be logged
+    project="DDPM initial-II",
+    
+    # track hyperparameters and run metadata
+    config={
+    "learning_rate": 0.001,
+    "architecture": "DDPM",
+    "dataset": "MRI dataset",
+    "epochs": 100,
+    }
+)
+# %%
+# Custom Datasets 
+import os
+import pathlib
+import torch
+from PIL import Image
+from torch.utils.data import Dataset
+from torchvision import transforms
+from typing import Tuple, Dict, List
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms, utils
+
+# Custom Dataset 
+class CustomDataset(Dataset):
+    def __init__(self, images, transform=None):
+        self.images = images
+        self.transform = transform
+    def __getitem__(self, idx):
+        image = self.images[idx]      
+        return image
+    def __len__(self):
+        return len(self.images)
+    
+# Data visualizer for datasets
+def visualize_volume_dataset(dataset, num_images = 20): 
+    fig = plt.figure(figsize=(20, 20))
+    for idx in range(0,num_images): 
+        data = dataset[idx]
+        ax = fig.add_subplot(1, num_images, idx+1)
+        # print(f"data shape {data.shape}") # Debug 
+        ax.imshow(data[:, :, 0].T, cmap='Greys_r')
+    plt.show()
+
+# custom dataset for the niffty file MRI 
+volume_custom_dataset = CustomDataset(list_tensor_volumes)
+# visualize all volumes in half view
+visualize_volume_dataset(volume_custom_dataset)
+
+# Display the tensor images
+def show_tensor_image(image): 
+    if len(image.shape) == 4: 
+        image = image[0,:,:,:]
+    plt.imshow(image.permute(1,2,0), cmap='Greys_r')
 
 
-test_data = torchvision.datasets.CIFAR10(root = ".", 
-                                          train= True, 
-                                          transform= torchvision.transforms.ToTensor(),
-                                          download= True,
-                                          target_transform= None)
+# For all volumes 
 
-""" 
-for idx, data in enumerate(test_data):
-    print(idx)
-    (image,label) = data
-    plt.imshow(image.permute(1,2,0))
+# concat all volumes into single list
+list_tensor_all_volumes = torch.stack(list_tensor_volumes) 
+tensor_all_volumes = torch.DoubleTensor(list_tensor_all_volumes)
+# reshape : get all images inside all voluems into single list [ Number of imgs, H, W ]
+tensor_all_images = torch.reshape(tensor_all_volumes, [-1, 320, 320])
+# add the color channel 
+tensor_all_images = tensor_all_images.unsqueeze(1)
+print(tensor_all_images.shape) # torch.Size([25600, 1, 320, 320])
+# dataset
+tensor_all_images_dataset = CustomDataset(tensor_all_images)
+plt.imshow( tensor_all_images_dataset[0].permute(1,2,0) , cmap='Greys_r' )
+
 """
 
+# concat all volumes into single list
+list_tensor_littel_all_volumes = torch.stack( [ list_tensor_volumes[0], list_tensor_volumes[1], list_tensor_volumes[2], list_tensor_volumes[3], list_tensor_volumes[4], list_tensor_volumes[5] ]) 
+tensor_littel_all_volumes = torch.DoubleTensor(list_tensor_littel_all_volumes)
+# reshape : get all images inside all voluems into single list [ Number of imgs, H, W ]
+tensor_littel_all_images = torch.reshape(tensor_littel_all_volumes, [-1, 320, 320])
+# add the color channel 
+tensor_littel_all_images = tensor_littel_all_images.unsqueeze(1)
+
+print(tensor_littel_all_images.shape) # torch.Size([512, 1, 320, 320])
+show_tensor_image(tensor_littel_all_images[0])
+# dataset
+tensor_littel_all_images_dataset = CustomDataset(tensor_littel_all_images)
+plt.imshow( tensor_littel_all_images_dataset[0].permute(1,2,0) , cmap='Greys_r' )
+""" 
 
 #%% 
 # DDPMs 
