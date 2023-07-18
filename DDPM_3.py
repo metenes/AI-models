@@ -116,9 +116,89 @@ class DDPM:
           
 
 # %%
+# Unet Helper classes
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+# dont know need to look attenstion 
+class SelfAttention(nn.Module):
+    def __init__(self, channels, size):
+        super(SelfAttention, self).__init__()
+        self.channels = channels
+        self.size = size
+        self.mha = nn.MultiheadAttention(channels, 4, batch_first=True)
+        self.ln = nn.LayerNorm([channels])
+        self.ff_self = nn.Sequential(
+            nn.LayerNorm([channels]),
+            nn.Linear(channels, channels),
+            nn.GELU(),
+            nn.Linear(channels, channels),
+        )
+
+    def forward(self, x):
+        x = x.view(-1, self.channels, self.size * self.size).swapaxes(1, 2)
+        x_ln = self.ln(x)
+        attention_value, _ = self.mha(x_ln, x_ln, x_ln)
+        attention_value = attention_value + x
+        attention_value = self.ff_self(attention_value) + attention_value
+        return attention_value.swapaxes(2, 1).view(-1, self.channels, self.size, self.size)
+
 # DoubleConv class
-class DoubleConv: 
+class DoubleConv(nn.Module): 
+  def __init__(self, 
+               in_ch, 
+               out_ch, 
+               mid_chs = None, 
+               skip_con = False):
+    super().__init__()
+    # the skip connections 
+    self.skip_con = skip_con
+    if mid_chs == False: 
+      mid_chs = out_ch # if there is no mid_chs dimensions must be conserved
+    self.double_conv = nn.Sequential(
+                        nn.Conv2d(in_ch, mid_chs, kernel_size= 3, padding= 1, bias= False), 
+                        nn.GroupNorm(1, mid_chs), # Normaliztion 
+                        nn.GELU(), # nn.ReLU would also work 
+                        nn.Conv2d(mid_chs, out_ch, kernel_size= 3, padding= 1, bias= False),
+                        nn.GroupNorm(1, out_ch), # Normaliztion 
+                      )
   
+  def forward(self, x): 
+    # need to get the x value in up case if skip connection is presented
+    if self.skip_con == True: 
+      return F.gelu(x + self.double_conv(x))
+    return self.double_conv(x)
+  
+# Down module 
+class Down(nn.Module): 
+  def __init__(self, in_ch, out_ch, time_emb_dim = 256):
+    super().__init__() 
+    self.down_conv = nn.Sequential(
+                      nn.MaxPool2d(2), 
+                      DoubleConv(in_ch, in_ch, skip_con=True), 
+                      DoubleConv(in_ch, out_ch)
+                    )
+    # time_embbeding
+    self.time_emb = nn.Sequential(
+                      nn.SiLU(), 
+                      nn.Linear(time_emb_dim, out_ch)
+                    )
+
+  def forward(self, x, t): 
+    x = self.down_conv(x)
+    emb = self.time_emb(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
+    return x + emb
+
+class Up(nn.Module): 
+  def __init__(self, in_ch, out_ch, time_emb_dim = 256): 
+    super().__init__()
+    # up sampling 
+    self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True) # directly used standadart libary
+    self.up_conv = nn.Sequential(
+                    DoubleConv(in_ch, in_ch, skip_con=True), 
+                    DoubleConv(in_ch, out_ch)
+                          )
 #%% 
 # Unet 
 class Unet(nn.Module):
@@ -131,9 +211,18 @@ class Unet(nn.Module):
     # init
     self.device = device 
     self.time_dim =  time_dim
-    # layers
+    # Down layers
     self.in_layer = DoubleConv(in_dim, 64)
-
+    self.down1 = Down(64,128)
+    self.att1 = SelfAttention(128, 32)
+    self.down2 = Down(128,256)
+    self.att2 = SelfAttention(256, 16)
+    self.down3 = Down(256,256)
+    self.att3 = SelfAttention(256, 8)
+    # Middel layers
+    self.bot1 = DoubleConv(256, 512)
+    self.bot2 = DoubleConv(256, 512)
+    self.bot4 = DoubleConv(256, 512)
           
           
           
