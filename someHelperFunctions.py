@@ -206,3 +206,30 @@ for epoch in range(epochs):
         sample_plot_image()
         # andb.log({"epoch": epoch, "loss": loss}, step=step)
 
+# Swish actiavation function
+class Swish(Module):
+    def forward(self, x):
+        return x * torch.sigmoid(x) 
+    
+# classic time embedding 
+class TimeEmbedding(nn.Module):
+    def __init__(self, n_channels):
+        super().__init__()
+        self.n_channels = n_channels  
+        self.linear_1 = nn.Linear(self.n_channels // 4, self.n_channels)
+        self.linear_2 = nn.Linear(self.n_channels, n_channels)
+        self.activation = Swish()
+
+    def forward(self, t: torch.Tensor):
+
+        half_dim = self.n_channels // 8
+        emb = math.log(10_000) / (half_dim - 1)
+        emb = torch.exp(torch.arange(half_dim, device=t.device) * -emb)
+        emb = t[:, None] * emb[None, :]
+        emb = torch.cat((emb.sin(), emb.cos()), dim=1)
+
+        # Transform with the MLP
+        emb = self.activation(self.linear_1(emb))
+        emb = self.linear_2(emb)
+        return emb
+    
