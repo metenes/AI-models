@@ -32,6 +32,28 @@ print(data_nummpy.shape)
 
 # %%
 # Display all the nii.gz images in dataset
+
+
+"""  
+#can be also added 
+import torchvision.transforms.functional as fn
+def prep_data_from_dir(file_dir_path, num_samples=20, cols=4):
+    # Plots some samples from the dataset
+    i = 0 
+    list_tensor_imgs = []
+    # list_img_paths = []
+    for filename in os.listdir(file_dir_path):
+        if i == num_samples : 
+            break
+        if filename.endswith('.nii.gz'): # niffy 
+            nb.load( os.path.join(file_dir_path, filename) ) 
+            print(os.path.join(file_dir_path, filename)) # file names
+            data_nummpy = img.get_fdata()
+            list_tensor_imgs.append(fn.normalize(torch.from_numpy(data_nummpy), mean=[0.5000], std=[.1000] )) # save the numpy to torch tensor
+            # list_img_paths.append(os.path.join(file_dir_path, filename)) # save the file_path
+            i += 1 
+    return list_tensor_imgs
+""" 
 def prep_data_from_dir(file_dir_path, num_samples=20, cols=4):
     """ Plots some samples from the dataset """
     i = 0 
