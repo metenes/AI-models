@@ -458,6 +458,7 @@ class Downsample(nn.Module):
         _ = t
         return self.conv(x)
 # Training
+# Training
 from typing import List
 import torch
 import torch.utils.data
@@ -468,6 +469,20 @@ from labml.configs import BaseConfigs, option
 from labml_helpers.device import DeviceConfigs
 from labml_nn.diffusion.ddpm import DenoiseDiffusion
 from labml_nn.diffusion.ddpm.unet import UNet
+
+# checkpoint features 
+load_model = True
+load_model_filename = "my_checkpoint_4.pth.tar"
+save_model_filename = "my_checkpoint_5.pth.tar"
+
+def saveCheckPoint(state, filename = "my_checkpoint_5.pth.tar"): 
+    print("-- Checkpoint reached --")
+    torch.save(state,filename)
+
+def loadCheckPoint(state):
+    print(" Checkpoint loading ")
+    model.load_state_dict(state['state_dict'])
+    optimizer.load_state_dict(state['optimizer'])
 
 class Configs(BaseConfigs):
     # Same as writting 
@@ -509,20 +524,6 @@ class Configs(BaseConfigs):
     # Adam optimizer
     optimizer: torch.optim.Adam
 
-    # checkpoint features 
-    load_model = True
-    load_model_filename = "my_checkpoint_4.pth.tar"
-    save_model_filename = "my_checkpoint_5.pth.tar"
-
-    def saveCheckPoint(state, filename = "my_checkpoint_5.pth.tar"): 
-        print("-- Checkpoint reached --")
-        torch.save(state,filename)
-
-    def loadCheckPoint(state):
-        print(" Checkpoint loading ")
-        model.load_state_dict(state['state_dict'])
-        optimizer.load_state_dict(state['optimizer'])
-
     def init(self):
         # Unet init with Unet parameters
         self.eps_model = UNet(
@@ -562,6 +563,10 @@ class Configs(BaseConfigs):
         """
         # Iterate through the dataset
         # five steps of the train process
+
+        if(load_model == True): 
+            loadCheckPoint(torch.load(load_model_filename))
+
         for epoch in range(self.epochs):
             for step, batch in enumerate(self.data_loader):
                 # optimizer zero_grad
@@ -577,7 +582,8 @@ class Configs(BaseConfigs):
                 if step % 16 == 0 :
                 # save the model
                     checkpoint = {'state_dict' : model.state_dict(), 'optimizer': optimizer.state_dict() }
-                    self.saveCheckPoint(checkpoint)
+                    saveCheckPoint(checkpoint, save_model_filename)
                     print(f"Epoch {epoch} | step {step:03d} Loss: {loss.item()} ")
                     self.sample()
+
 
