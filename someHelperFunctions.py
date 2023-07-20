@@ -457,3 +457,127 @@ class Downsample(nn.Module):
         # to match with `ResidualBlock`.
         _ = t
         return self.conv(x)
+# Training
+from typing import List
+import torch
+import torch.utils.data
+import torchvision
+from PIL import Image
+from labml import lab, tracker, experiment, monit
+from labml.configs import BaseConfigs, option
+from labml_helpers.device import DeviceConfigs
+from labml_nn.diffusion.ddpm import DenoiseDiffusion
+from labml_nn.diffusion.ddpm.unet import UNet
+
+class Configs(BaseConfigs):
+    # Same as writting 
+        # device agnostic code
+        # device = "cuda" if torch.cuda.is_available() else "cpu"
+    device: torch.device = DeviceConfigs()
+    # U-Net model 
+    eps_model: UNet
+    # ddpm 
+    ddpm : DDPM
+    # Number of channels in the image. 3 for RGB.
+    image_channels: int = 1 # as gray MRI image
+    # Image size
+    image_size: int = 320 
+
+    # Unet parameters
+    # Number of channels in the initial feature map
+    n_channels: int = 64
+    # The list of channel numbers at each resolution.
+    # The number of channels is `channel_multipliers[i] * n_channels`
+    channel_multipliers: List[int] = [1, 2, 2, 4]
+    # The list of booleans that indicate whether to use attention at each resolution
+    is_attention: List[int] = [False, False, False, True]
+
+    # Number of time steps $T$
+    n_steps: int = 1_000
+    # Batch size
+    batch_size: int = 8
+    # Number of samples to generate
+    n_samples: int = 16
+    # Learning rate
+    learning_rate: float = 2e-5
+    # Number of training epochs
+    epochs: int = 100
+    # Dataset
+    dataset: torch.utils.data.Dataset
+    # Dataloader
+    data_loader: torch.utils.data.DataLoader
+    # Adam optimizer
+    optimizer: torch.optim.Adam
+
+    # checkpoint features 
+    load_model = True
+    load_model_filename = "my_checkpoint_4.pth.tar"
+    save_model_filename = "my_checkpoint_5.pth.tar"
+
+    def saveCheckPoint(state, filename = "my_checkpoint_5.pth.tar"): 
+        print("-- Checkpoint reached --")
+        torch.save(state,filename)
+
+    def loadCheckPoint(state):
+        print(" Checkpoint loading ")
+        model.load_state_dict(state['state_dict'])
+        optimizer.load_state_dict(state['optimizer'])
+
+    def init(self):
+        # Unet init with Unet parameters
+        self.eps_model = UNet(
+                                image_channels=self.image_channels,
+                                n_channels=self.n_channels,
+                                ch_mults=self.channel_multipliers,
+                                is_attn=self.is_attention, ).to(self.device)
+
+        # Create ddpm class 
+        self.ddpm = DDPM(
+                        eps_model=self.eps_model,
+                        n_steps=self.n_steps,
+                        device=self.device, )
+        # Create Dataset 
+        self.dataset = tensor_littel_all_images_dataset
+        # Create dataloader
+        self.data_loader = DataLoader(self.dataset, batch_size= self.batch_size, shuffle=True, drop_last=True)
+        # Create optimizer
+        self.optimizer = torch.optim.Adam( self.eps_model.parameters(), lr = self.learning_rate)
+
+    def sample(self):
+        """
+        ### Sample images
+        """
+        with torch.no_grad():
+            # $x_T 
+            x = torch.randn([self.n_samples, self.image_channels, self.image_size, self.image_size],device=self.device )
+            
+            # Remove noise for current t step 
+            for t_cur in  self.n_steps:
+                t = self.n_steps - t_cur - 1
+                x = self.ddpm.p_sample(x, x.new_full((self.n_samples,), t, dtype=torch.long))
+
+    def train(self):
+        """
+        ### Train
+        """
+        # Iterate through the dataset
+        # five steps of the train process
+        for epoch in range(self.epochs):
+            for step, batch in enumerate(self.data_loader):
+                # optimizer zero_grad
+                self.optimizer.zero_grad()
+                # rand time 
+                t = torch.randint(0, self.n_steps, (1,), device = device).long()
+                # loss
+                loss = self.ddpm.loss(model, batch.to(device), t)
+                # backward
+                loss.backward()
+                # step
+                optimizer.step()
+                if step % 16 == 0 :
+                # save the model
+                    checkpoint = {'state_dict' : model.state_dict(), 'optimizer': optimizer.state_dict() }
+                    self.saveCheckPoint(checkpoint)
+                    print(f"Epoch {epoch} | step {step:03d} Loss: {loss.item()} ")
+                    self.sample()
+
