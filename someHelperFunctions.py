@@ -706,3 +706,24 @@ with torch.no_grad():
         save_tensor_as_nifti(image, f"simpleDDPM_3_forward_diffusion_imgfolder/forward_diffusion_{folder_idx}/img_{idx}.nii.gz")
 
 
+def save_tensor_as_nifti(tensor, output_filename):
+    # Ensure the tensor is a numpy array
+    tensor = np.array(tensor)
+    # Create a NIfTI image object
+    img = nib.Nifti1Image(tensor, affine=np.eye(4))  # Assuming an identity affine transformation here
+    # Save the NIfTI image to a file
+    nib.save(img, output_filename)
+
+
+def read_nifty_as_image(input_filename, num_samples = 20, cols = 4): 
+    plt.figure(figsize=(15,15)) # figure size for display
+    i = 0 
+    for idx in range(0, T, stepsize):
+        image_path = f"{input_filename}/img_{idx}.nii.gz"
+        img = nb.load(image_path) 
+        print(image_path) # file names
+        data_nummpy = img.get_fdata()
+        plt.subplot(int(num_samples/cols) + 1, cols, i + 1)
+        plt.imshow(torch.from_numpy(data_nummpy).squeeze(),cmap='Greys_r')
+        i += 1 
+        
