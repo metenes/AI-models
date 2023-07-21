@@ -625,4 +625,84 @@ class Configs():
 # Create configurations
 configs = Configs()
 
+#%% 
+# Simulate forward diffusion
+from torch.optim import Adam
+from tqdm import tqdm
+from torchvision.utils import save_image
+import random
+import torchvision.transforms as TransformImage
+from PIL import Image
+import numpy as np
+import nibabel as nib
+
+
+def save_tensor_as_nifti(tensor, output_filename):
+    # Ensure the tensor is a numpy array
+    tensor = np.array(tensor)
+    # Create a NIfTI image object
+    img = nib.Nifti1Image(tensor, affine=np.eye(4))  # Assuming an identity affine transformation here
+    # Save the NIfTI image to a file
+    nib.save(img, output_filename)
+
+
+
+# device agnostic code
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+# varaibles 
+image_size = 320
+epochs = 100
+load_model = False
+load_model_filename = "my_checkpoint_newModel_1.pth.tar"
+
+BATCH_SIZE = 8
+IMG_SIZE = 320
+T = 1000
+
+# dataloader and shuffel
+tensor_littel_all_images_dataloader = DataLoader(tensor_littel_all_images_dataset, batch_size= BATCH_SIZE, shuffle=True, drop_last=True)
+
+# Unet 
+model = UNet(image_channels=1).to(device)
+
+# DDPM model
+# T : n steps
+# model : Unet
+ddpm = DDPM(model, T, device=device)
+# Optim
+optimizer = Adam(model.parameters(), lr=0.001)
+
+# dataloader and shuffel
+tensor_littel_all_images_dataloader = DataLoader(tensor_littel_all_images_dataset, batch_size= BATCH_SIZE, shuffle=True, drop_last=True)
+
+plt.figure(figsize=(15,15))
+plt.axis('off')
+num_images = 10
+stepsize = int(T/num_images)
+
+# make a base directory 
+if not(os.path.isdir(f'simpleDDPM_3_forward_diffusion_imgfolder')):
+    os.mkdir(f'simpleDDPM_3_forward_diffusion_imgfolder')
+trials = 3
+
+# transform from tensor to PIL image
+transform = TransformImage.ToPILImage()
+
+with torch.no_grad(): 
+# Noising step 
+ for folder_idx in range(trials): 
+    # current image to done noising 
+    image= next(iter(tensor_littel_all_images_dataloader))[random.randint(0, BATCH_SIZE-1)].to(device)
+    if not(os.path.isdir(f'simpleDDPM_3_forward_diffusion_imgfolder/forward_diffusion_{folder_idx}')):
+        os.mkdir(f'simpleDDPM_3_forward_diffusion_imgfolder/forward_diffusion_{folder_idx}')
+    for idx in range(0, T, stepsize):
+        t = torch.Tensor([idx]).type(torch.int64).to(device=device)
+        plt.subplot(1, num_images+1, int(idx/stepsize) + 1)
+        # forward diffusion 
+        image, noise = ddpm.q_sample(image, t)
+        # show image in terminal / image is tensor 
+        show_tensor_image(image.to(device))
+        save_tensor_as_nifti(image, f"simpleDDPM_3_forward_diffusion_imgfolder/forward_diffusion_{folder_idx}/img_{idx}.nii.gz")
+
 
