@@ -484,47 +484,58 @@ def loadCheckPoint(state):
     model.load_state_dict(state['state_dict'])
     optimizer.load_state_dict(state['optimizer'])
 
-class Configs(BaseConfigs):
-    # Same as writting 
-        # device agnostic code
-        # device = "cuda" if torch.cuda.is_available() else "cpu"
-    device: torch.device = DeviceConfigs()
-    # U-Net model 
-    eps_model: UNet
-    # ddpm 
-    ddpm : DDPM
-    # Number of channels in the image. 3 for RGB.
-    image_channels: int = 1 # as gray MRI image
-    # Image size
-    image_size: int = 320 
+# checkpoint features 
+load_model = False
+load_model_filename = "my_checkpoint_new.pth.tar"
+save_model_filename = "my_checkpoint_new.pth.tar"
 
-    # Unet parameters
-    # Number of channels in the initial feature map
-    n_channels: int = 64
-    # The list of channel numbers at each resolution.
-    # The number of channels is `channel_multipliers[i] * n_channels`
-    channel_multipliers: List[int] = [1, 2, 2, 4]
-    # The list of booleans that indicate whether to use attention at each resolution
-    is_attention: List[int] = [False, False, False, True]
+def saveCheckPoint(state, filename = "ERROR"): 
+    print("-- Checkpoint reached --")
+    torch.save(state,filename)
 
-    # Number of time steps $T$
-    n_steps: int = 1_000
-    # Batch size
-    batch_size: int = 8
-    # Number of samples to generate
-    n_samples: int = 16
-    # Learning rate
-    learning_rate: float = 2e-5
-    # Number of training epochs
-    epochs: int = 100
-    # Dataset
-    dataset: torch.utils.data.Dataset
-    # Dataloader
-    data_loader: torch.utils.data.DataLoader
-    # Adam optimizer
-    optimizer: torch.optim.Adam
+def loadCheckPoint(state, model, optimizer ):
+    print(" Checkpoint loading ")
+    model.load_state_dict(state['state_dict'])
+    optimizer.load_state_dict(state['optimizer'])
 
+class Configs():
     def init(self):
+
+        # Same as writting 
+        # device agnostic code
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        # device: torch.device = DeviceConfigs()
+        # Number of channels in the image. 3 for RGB.
+        self.image_channels: int = 1 # as gray MRI image
+        # Image size
+        self.image_size: int = 320 
+
+        # Unet parameters
+        # Number of channels in the initial feature map
+        self.n_channels: int = 64
+        # The list of channel numbers at each resolution.
+        # The number of channels is `channel_multipliers[i] * n_channels`
+        self.channel_multipliers: List[int] = [1, 2, 2, 4]
+        # The list of booleans that indicate whether to use attention at each resolution
+        self.is_attention: List[int] = [False, False, False, True]
+    
+        # Number of time steps $T$
+        self.n_steps: int = 150
+        # Batch size
+        self.batch_size: int = 4
+        # Number of samples to generate
+        self.n_samples: int = 16
+        # Learning rate
+        self.learning_rate: float = 2e-5
+        # Number of training epochs
+        self.epochs: int = 10000
+        # Dataset
+        self.dataset: torch.utils.data.Dataset
+        # Dataloader
+        self.data_loader: torch.utils.data.DataLoader
+        # Adam optimizer
+        self.optimizer: torch.optim.Adam
+
         # Unet init with Unet parameters
         self.eps_model = UNet(
                                 image_channels=self.image_channels,
@@ -551,11 +562,19 @@ class Configs(BaseConfigs):
         with torch.no_grad():
             # $x_T 
             x = torch.randn([self.n_samples, self.image_channels, self.image_size, self.image_size],device=self.device )
-            
+            print("currently sample ")
             # Remove noise for current t step 
-            for t_cur in  self.n_steps:
-                t = self.n_steps - t_cur - 1
+
+            plt.figure(figsize=(15,15))
+            plt.axis('off')
+            for idx in  range(self.n_steps):
+                print(f"Sampling step : {idx}")
+                plt.subplot(1, self.n_samples + 1, idx + 1)
+                # generate images 
+                t = self.n_steps - idx - 1
                 x = self.ddpm.p_sample(x, x.new_full((self.n_samples,), t, dtype=torch.long))
+                show_tensor_image(x.to(device))
+
 
     def train(self):
         """
@@ -565,25 +584,45 @@ class Configs(BaseConfigs):
         # five steps of the train process
 
         if(load_model == True): 
-            loadCheckPoint(torch.load(load_model_filename))
+            # loadCheckPoint(torch.load(load_model_filename, self.eps_model, self.optimizer, map_location=torch.device('cpu')))
+            loadCheckPoint(torch.load(load_model_filename), self.eps_model, self.optimizer)
 
-        for epoch in range(self.epochs):
+        with torch.no_grad():
+         for epoch in range(self.epochs):
             for step, batch in enumerate(self.data_loader):
+                print(f"currently at step {step}, epoch {epoch}")
                 # optimizer zero_grad
                 self.optimizer.zero_grad()
                 # rand time 
                 t = torch.randint(0, self.n_steps, (1,), device = device).long()
                 # loss
-                loss = self.ddpm.loss(model, batch.to(device), t)
+                loss = self.ddpm.loss(batch.to(device)).float()
+                loss.requires_grad = True # need to get the gradients before loss.backward()
                 # backward
                 loss.backward()
                 # step
                 optimizer.step()
                 if step % 16 == 0 :
-                # save the model
-                    checkpoint = {'state_dict' : model.state_dict(), 'optimizer': optimizer.state_dict() }
+                    # print(model.state_dict())
+                    # save the model
+                    checkpoint = {'state_dict' : self.eps_model.state_dict(), 'optimizer': self.optimizer.state_dict() }
                     saveCheckPoint(checkpoint, save_model_filename)
                     print(f"Epoch {epoch} | step {step:03d} Loss: {loss.item()} ")
-                    self.sample()
+                    # self.sample() # TODO fix the bug freeze in worklflow
+    
+    def generate(self): 
+        if torch.cuda.is_available : 
+            state = torch.load(load_model_filename, map_location=torch.device('cpu'))
+        else : 
+            state = torch.load(load_model_filename)
+
+        self.eps_model.load_state_dict(state['state_dict'])
+        self.optimizer.load_state_dict(state['optimizer'])
+        # loadCheckPoint(state,  self.eps_model, self.optimizer)
+        for i in range(self.epochs):
+            self.sample()
+
+# Create configurations
+configs = Configs()
 
 
