@@ -458,6 +458,7 @@ class Downsample(nn.Module):
         _ = t
         return self.conv(x)
 # Training
+#%%  
 # Training
 from typing import List
 import torch
@@ -472,22 +473,8 @@ from labml_nn.diffusion.ddpm.unet import UNet
 
 # checkpoint features 
 load_model = True
-load_model_filename = "my_checkpoint_4.pth.tar"
-save_model_filename = "my_checkpoint_5.pth.tar"
-
-def saveCheckPoint(state, filename = "my_checkpoint_5.pth.tar"): 
-    print("-- Checkpoint reached --")
-    torch.save(state,filename)
-
-def loadCheckPoint(state):
-    print(" Checkpoint loading ")
-    model.load_state_dict(state['state_dict'])
-    optimizer.load_state_dict(state['optimizer'])
-
-# checkpoint features 
-load_model = False
 load_model_filename = "my_checkpoint_new.pth.tar"
-save_model_filename = "my_checkpoint_new.pth.tar"
+save_model_filename = "my_checkpoint_new.pth_2.tar"
 
 def saveCheckPoint(state, filename = "ERROR"): 
     print("-- Checkpoint reached --")
@@ -497,6 +484,14 @@ def loadCheckPoint(state, model, optimizer ):
     print(" Checkpoint loading ")
     model.load_state_dict(state['state_dict'])
     optimizer.load_state_dict(state['optimizer'])
+
+# make a base directory for sample
+if not(os.path.isdir(f'simpleDDPM_3_sample_imgfolder')):
+    os.mkdir(f'simpleDDPM_3_sample_imgfolder')
+
+# make a base directory for generate
+if not(os.path.isdir(f'simpleDDPM_3_generate_imgfolder')):
+    os.mkdir(f'simpleDDPM_3_generate_imgfolder')
 
 class Configs():
     def init(self):
@@ -520,7 +515,7 @@ class Configs():
         self.is_attention: List[int] = [False, False, False, True]
     
         # Number of time steps $T$
-        self.n_steps: int = 150
+        self.n_steps: int = 151
         # Batch size
         self.batch_size: int = 4
         # Number of samples to generate
@@ -555,7 +550,7 @@ class Configs():
         # Create optimizer
         self.optimizer = torch.optim.Adam( self.eps_model.parameters(), lr = self.learning_rate)
 
-    def sample(self):
+    def sample(self , directory_name):
         """
         ### Sample images
         """
@@ -564,17 +559,18 @@ class Configs():
             x = torch.randn([self.n_samples, self.image_channels, self.image_size, self.image_size],device=self.device )
             print("currently sample ")
             # Remove noise for current t step 
-
             plt.figure(figsize=(15,15))
             plt.axis('off')
             for idx in  range(self.n_steps):
+                # save the sample W
+                if idx % 15 == 0: 
+                    save_tensor_as_nifti(x, f"{directory_name}/img_{idx}.nii.gz")
                 print(f"Sampling step : {idx}")
-                plt.subplot(1, self.n_samples + 1, idx + 1)
+                # plt.subplot(1, self.n_samples + 1, idx + 1)
                 # generate images 
                 t = self.n_steps - idx - 1
                 x = self.ddpm.p_sample(x, x.new_full((self.n_samples,), t, dtype=torch.long))
                 show_tensor_image(x.to(device))
-
 
     def train(self):
         """
@@ -602,13 +598,17 @@ class Configs():
                 loss.backward()
                 # step
                 optimizer.step()
-                if step % 16 == 0 :
+                if epoch % 100 == 0 :
                     # print(model.state_dict())
                     # save the model
                     checkpoint = {'state_dict' : self.eps_model.state_dict(), 'optimizer': self.optimizer.state_dict() }
                     saveCheckPoint(checkpoint, save_model_filename)
                     print(f"Epoch {epoch} | step {step:03d} Loss: {loss.item()} ")
-                    # self.sample() # TODO fix the bug freeze in worklflow
+                    # make a sub-directory 
+                    directory_name = f'simpleDDPM_3_sample_imgfolder/sample_epoch{epoch}'
+                    if not( os.path.isdir(directory_name) ):
+                        os.mkdir(directory_name)
+                    self.sample(directory_name)
     
     def generate(self): 
         if torch.cuda.is_available : 
@@ -618,12 +618,40 @@ class Configs():
 
         self.eps_model.load_state_dict(state['state_dict'])
         self.optimizer.load_state_dict(state['optimizer'])
-        # loadCheckPoint(state,  self.eps_model, self.optimizer)
-        for i in range(self.epochs):
-            self.sample()
+
+        directory_name = 'simpleDDPM_3_generate_imgfolder/generate'
+        # make a sub-directory 
+        if not( os.path.isdir(directory_name) ):
+            os.mkdir(directory_name)
+        self.sample(directory_name)
 
 # Create configurations
 configs = Configs()
+#%% 
+# DO NOT ITERATE BEFORE SAVE / CHANGE NAME
+# Initialize
+
+configs.init()
+# start train
+configs.train()
+""" 
+if torch.cuda.is_available: 
+    os.rmdir("simpleDDPM_3_forward_diffusion_imgfolder")
+"""
+#%% 
+# Initialize
+# configs.init()
+# Do generation in cpu 
+configs.generate()
+
+# %%
+# Access data test directly from directly folder
+""" 
+img = nb.load(filename = "simpleDDPM_3_generate_imgfolder/generate_epoch1/img_60.nii.gz")
+print(img.shape)
+plt.imshow(img.get_fdata()[15].transpose(1,2,0),cmap='Greys_r')
+"""
+# %%
 
 #%% 
 # Simulate forward diffusion
