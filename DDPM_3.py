@@ -333,29 +333,189 @@ class Up(nn.Module):
                           )
 #%% 
 # Unet 
-class Unet(nn.Module):
-  def __init__(self, 
-               in_dim = 3, 
-               out_dim = 3, 
-               time_dim = 256, 
-               device ="cpu"):
-    super().__init__()
-    # init
-    self.device = device 
-    self.time_dim =  time_dim
-    # Down layers
-    self.in_layer = DoubleConv(in_dim, 64)
-    self.down1 = Down(64,128)
-    self.att1 = SelfAttention(128, 32)
-    self.down2 = Down(128,256)
-    self.att2 = SelfAttention(256, 16)
-    self.down3 = Down(256,256)
-    self.att3 = SelfAttention(256, 8)
-    # Middel layers
-    self.bot1 = DoubleConv(256, 512)
-    self.bot2 = DoubleConv(256, 512)
-    self.bot4 = DoubleConv(256, 512)
-          
-          
-          
-          
+class UNet(nn.Module):
+    def __init__(self, c_in=1, c_out=1, time_dim=256, device="cuda"):
+        super().__init__()
+        self.device = device
+        self.time_dim = time_dim
+        self.inc = DoubleConv(c_in, 64)
+        self.down1 = Down(64, 128)
+        self.sa1 = SelfAttention(128, 32)
+        self.down2 = Down(128, 256)
+        self.sa2 = SelfAttention(256, 16)
+        self.down3 = Down(256, 256)
+        self.sa3 = SelfAttention(256, 8)
+
+        self.bot1 = DoubleConv(256, 512)
+        self.bot2 = DoubleConv(512, 512)
+        self.bot3 = DoubleConv(512, 256)
+
+        self.up1 = Up(512, 128)
+        self.sa4 = SelfAttention(128, 16)
+        self.up2 = Up(256, 64)
+        self.sa5 = SelfAttention(64, 32)
+        self.up3 = Up(128, 64)
+        self.sa6 = SelfAttention(64, 64)
+        self.outc = nn.Conv2d(64, c_out, kernel_size=1)
+
+    def pos_encoding(self, t, channels):
+        inv_freq = 1.0 / (
+            10000
+            ** (torch.arange(0, channels, 2, device=self.device).float() / channels)
+        )
+        pos_enc_a = torch.sin(t.repeat(1, channels // 2) * inv_freq)
+        pos_enc_b = torch.cos(t.repeat(1, channels // 2) * inv_freq)
+        pos_enc = torch.cat([pos_enc_a, pos_enc_b], dim=-1)
+        return pos_enc
+
+    def forward(self, x, t):
+        t = t.unsqueeze(-1).type(torch.float)
+        t = self.pos_encoding(t, self.time_dim)
+
+        x1 = self.inc(x)
+        x2 = self.down1(x1, t)
+        x2 = self.sa1(x2)
+        x3 = self.down2(x2, t)
+        x3 = self.sa2(x3)
+        x4 = self.down3(x3, t)
+        x4 = self.sa3(x4)
+
+        x4 = self.bot1(x4)
+        x4 = self.bot2(x4)
+        x4 = self.bot3(x4)
+
+        x = self.up1(x4, x3, t)
+        x = self.sa4(x)
+        x = self.up2(x, x2, t)
+        x = self.sa5(x)
+        x = self.up3(x, x1, t)
+        x = self.sa6(x)
+        output = self.outc(x)
+        return output
+    
+#%%
+# DDPM model 
+import os
+import torch
+import torch.nn as nn
+from matplotlib import pyplot as plt
+from tqdm import tqdm
+from torch import optim
+from utils import *
+
+import torch
+from torch import nn
+# Import plot
+import matplotlib.pyplot as plt
+# Import computer vision
+import torchvision
+from torchvision import datasets
+from torchvision import transforms
+from torchvision.transforms import ToTensor
+# Batch
+from torch.utils.data import DataLoader
+from torch.utils.data.dataloader import T
+import torch.nn.functional as F
+
+import wandb # weight and biases
+# start a new experiment
+
+class DDPM: 
+    def __init__(self, noise_steps = 1000, beta_start=1e-4, beta_end=0.02, img_size=320, device="cuda"):
+        # Init
+        self.noise_steps = noise_steps 
+        self.beta_start = beta_start
+        self.beta_end = beta_end
+        self.img_size = img_size        
+        self.device = device 
+
+        # pre-defined
+        self.betas = self.beta_noise_schedule()
+        self.alphas = 1 - self.betas
+        self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
+        # dim = 0 means it is a vector horizantal = [ .. .. .. ]
+        # dim = 1 means it is a vector vertical
+
+    def beta_noise_schedule(self): 
+        return torch.linspace(self.beta_start, self.beta_end, self.noise_steps)
+
+    def noise_images(self, x, t): 
+        sqrt_alphas_cumprod_t = torch.sqrt(self.alphas_cumprod[t])[:, None, None, None]
+        sqrt_one_minus_alphas_cumprod_t = torch.sqrt(1 - self.alphas_cumprod[t])[:, None, None, None]
+        # gaussian noise = random 
+        eps = torch.rand_like(x)
+        # reparamzitaion trick
+        # return noised image , noise
+        return sqrt_alphas_cumprod_t * x + sqrt_one_minus_alphas_cumprod_t * eps , eps
+
+    def sample_timesteps(self, n): 
+        # return random timestep 
+        # (n, ) is the vector shape 
+        return torch.randint(low = 1, high= self.noise_steps, size= (n,))
+    
+    def sample(self, model, n, color_ch = 1): 
+        # start evaluation 
+        model.eval()
+        with torch.no_grad(): # CUDA out of memory
+            # produce random images in given format (batch, color, imgsize, imgsize) = x_T
+            x = torch.randn( (n, color_ch, self.img_size, self.img_size ) ) 
+            # go through the timesteps 
+            for i in tqdm(reversed(range(1, self.noise_steps)), position= 0): 
+                # produce t as batch number size for each elememt
+                t = (torch.ones(n) * i).long().to(self.device)
+                # Backward process = predict the noise 
+                noise_pred = model(x, t)
+                # use predicted noise to get the d-noised image 
+                # [:, None, None, None] part is to take only unigue timestep of positionel embeddings
+                alphas_t = self.alphas[t][:, None, None, None]
+                alphas_cumprod_t = self.alphas_cumprod[t][:, None, None, None]
+                betas_t = self.betas[t][:, None, None, None]
+                if i > 1 : 
+                    noise = torch.rand_like(x) 
+                else :
+                    # noise is zero at last step 
+                    noise = torch.zeros_like(x) 
+                x = 1 / torch.sqrt(alphas_t) * (x - ((1 - alphas_t) / (torch.sqrt(1 - alphas_cumprod_t))) * noise_pred) + torch.sqrt(betas_t) * noise
+        model.train()
+        x = (x.clamp(-1, 1) + 1) / 2
+        x = (x * 255).type(torch.uint8)
+        return x
+    
+def train():
+        # constants
+        BATCH_SIZE = 8
+        IMG_SIZE = 320
+        epochs = 1000
+        lr = 3e-4
+        # device agnostic code
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        # model 
+        model = UNet().to(device)
+        # dataloader and shuffel
+        dataloader = DataLoader(tensor_all_images_dataset, batch_size= BATCH_SIZE, shuffle=True, drop_last=True)
+        dataloader_size = len(dataloader)
+        # optim 
+        optimizer = optim.AdamW(model.parameters(), lr = lr)
+        # loss 
+        loss_fn = nn.MSELoss()
+        # ddpm model
+        ddpm = DDPM(img_size= IMG_SIZE, device= device)
+        with torch.no_grad(): # CUDA out of memory
+         for epoch in range(epochs): 
+            for idx, (images, _) in enumerate(tqdm(dataloader)): 
+                # device agnostic code
+                images = images.to(device)
+                # get random time value t
+                t = ddpm.sample_timesteps(images.shape[0]).to(device)
+                # forward 
+                # use t to calculate the noised image at t and the amount of noise at t
+                x_t, noise_real = ddpm.noise_images(images, t)
+                # backward 
+                # predict the noise by model
+                noise_pred = model(x_t, t)
+                # calcuate the difference between the noise_pred and noise_reel
+                loss = loss_fn(noise_real, noise_pred)
+#%% 
+# start train
+train()
+# %%
