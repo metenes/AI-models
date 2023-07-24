@@ -190,7 +190,7 @@ class Unet_plus2(nn.Module):
         filters = [64, 128, 256, 512, 1024]
 
         # Down Sample = Standart Unet
-        self.conv00 = ConvBlock(self.in_channels, filters[0], self.is_batchnorm)
+        self.conv00 = ConvBlock(self.in_ch, filters[0], self.is_batchnorm)
         self.maxpool0 = nn.MaxPool2d(kernel_size=2)
         self.conv10 = ConvBlock(filters[0], filters[1], self.is_batchnorm)
         self.maxpool1 = nn.MaxPool2d(kernel_size=2)
