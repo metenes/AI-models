@@ -754,4 +754,22 @@ def read_nifty_as_image(input_filename, num_samples = 20, cols = 4):
         plt.subplot(int(num_samples/cols) + 1, cols, i + 1)
         plt.imshow(torch.from_numpy(data_nummpy).squeeze(),cmap='Greys_r')
         i += 1 
-        
+# %% 
+# Simulate forward diffusion
+image = next(iter(tensor_littel_all_images_dataloader))[0]
+print(image.dtype)
+
+plt.figure(figsize=(15,15))
+plt.axis('off')
+num_images = 10
+stepsize = int(T/num_images)
+
+for idx in range(0, T, stepsize):
+    t = torch.Tensor([idx]).type(torch.int64)
+    plt.subplot(1, num_images+1, int(idx/stepsize) + 1)
+    img, noise = forward_diffusion_sample(image, t)
+    # print(f" {img.shape} and {noise.shape}")
+    show_tensor_image(img)
+
+
+
