@@ -755,7 +755,7 @@ def read_nifty_as_image(input_filename, num_samples = 20, cols = 4):
         plt.imshow(torch.from_numpy(data_nummpy).squeeze(),cmap='Greys_r')
         i += 1 
 # %% 
-# Simulate forward diffusion
+# Simulate corrupt diffusion
 image = next(iter(tensor_littel_all_images_dataloader))[0]
 print(image.dtype)
 
@@ -764,12 +764,31 @@ plt.axis('off')
 num_images = 10
 stepsize = int(T/num_images)
 
+# select where to corrupt. 
+top_left_x, top_left_y = 100, 100
+height , witdh = 100, 100
+
 for idx in range(0, T, stepsize):
     t = torch.Tensor([idx]).type(torch.int64)
     plt.subplot(1, num_images+1, int(idx/stepsize) + 1)
-    img, noise = forward_diffusion_sample(image, t)
-    # print(f" {img.shape} and {noise.shape}")
+    img = forward_corruption_sample(image, t, top_left_x, top_left_y ,height ,witdh )
+    # print(img.shape) # [1, 320, 320]
     show_tensor_image(img)
+    
+def quadratic_beta_schedule(timestep, start = 0.0001, end = 0.02 ):
+    return torch.linspace(start**0.5, end**0.5, timestep) ** 2
+
+def sigmoid_beta_schedule(timestep, start = 0.0001, end = 0.02):
+    betas_in_fn = torch.linspace(-6, 6, timestep)
+    return torch.sigmoid(betas_in_fn) * (end - start) + start
 
 
+def forward_corruption_sample(x_0, t, top_left_x, top_left_y ,height ,witdh, device = 'cpu'): 
+    # we will add a box with random size and cordinates which will be corrupted similar to forward diffusuion
+
+    # produce a noised image 
+    x_noised, noise = forward_diffusion_sample(x_0,t,device)
+    # get the specific part from noised image and integrage it to the image
+    x_0[0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)] += x_noised[0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)]
+    return x_0
 
