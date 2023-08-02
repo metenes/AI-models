@@ -782,7 +782,6 @@ def sigmoid_beta_schedule(timestep, start = 0.0001, end = 0.02):
     betas_in_fn = torch.linspace(-6, 6, timestep)
     return torch.sigmoid(betas_in_fn) * (end - start) + start
 
-
 def forward_corruption_sample(x_0, t, top_left_x, top_left_y ,height ,witdh, device = 'cpu'): 
     # we will add a box with random size and cordinates which will be corrupted similar to forward diffusuion
 
@@ -791,4 +790,84 @@ def forward_corruption_sample(x_0, t, top_left_x, top_left_y ,height ,witdh, dev
     # get the specific part from noised image and integrage it to the image
     x_0[0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)] += x_noised[0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)]
     return x_0
+# Simplex noise
+import numpy as np
+
+class SimplexNoise:
+    def __init__(self, seed=None):
+        self.perm = np.arange(256, dtype=np.int32)
+        if seed is not None:
+            np.random.seed(seed)
+        np.random.shuffle(self.perm)
+        self.perm = np.tile(np.concatenate((self.perm, self.perm)), 2)
+
+        self.grad3 = np.array([[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],
+                               [1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],
+                               [0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]], dtype=np.int32)
+
+        self.simplex = np.array([[0,1,2,3],[0,1,3,2],[0,0,0,0],[0,2,3,1],
+                                 [0,0,0,0],[0,0,0,0],[0,0,0,0],[1,2,3,0],
+                                 [0,2,1,3],[0,0,0,0],[0,3,1,2],[0,3,2,1]], dtype=np.int32)
+
+    def dot(self, g, x, y):
+        return g[0]*x + g[1]*y
+
+    def noise(self, xin, yin):
+        # Noise contributions from the three corners
+        F2 = 0.5*(np.sqrt(3.0)-1.0)
+        s = (xin+yin)*F2
+        i = np.floor(xin+s)
+        j = np.floor(yin+s)
+        G2 = (3.0-np.sqrt(3.0))/6.0
+        t = (i+j)*G2
+        X0 = i-t
+        Y0 = j-t
+        x0 = xin-X0
+        y0 = yin-Y0
+
+        # Determine which simplex we are in
+        i1, j1 = 0, 0
+        if x0>y0:
+            i1 = 1
+        else:
+            j1 = 1
+
+        # Offsets for corners
+        x1 = x0 - i1 + G2
+        y1 = y0 - j1 + G2
+        x2 = x0 - 1.0 + 2.0*G2
+        y2 = y0 - 1.0 + 2.0*G2
+
+        # Calculate the hashed gradient indices
+        ii = i & 255
+        jj = j & 255
+        gi0 = self.perm[ii+self.perm[jj]] % 12
+        gi1 = self.perm[ii+i1+self.perm[jj+j1]] % 12
+        gi2 = self.perm[ii+1+self.perm[jj+1]] % 12
+
+        # Calculate the contribution from the three corners
+        t0 = 0.5 - x0*x0 - y0*y0
+        if t0 < 0:
+            n0 = 0.0
+        else:
+            t0 *= t0
+            n0 = t0 * t0 * self.dot(self.grad3[gi0], x0, y0)
+
+        t1 = 0.5 - x1*x1 - y1*y1
+        if t1 < 0:
+            n1 = 0.0
+        else:
+            t1 *= t1
+            n1 = t1 * t1 * self.dot(self.grad3[gi1], x1, y1)
+
+        t2 = 0.5 - x2*x2 - y2*y2
+        if t2 < 0:
+            n2 = 0.0
+        else:
+            t2 *= t2
+            n2 = t2 * t2 * self.dot(self.grad3[gi2], x2, y2)
+
+        # Add contributions from each corner to get the final noise value.
+        # The result is scaled to return values in the interval [-1,1].
+        return 70.0 * (n0 + n1 + n2)
 
