@@ -253,12 +253,14 @@ def forward_corruption_sample(x_0, t, top_left_x = 100, top_left_y= 100 ,height=
     # we will add a box with random size and cordinates which will be corrupted similar to forward diffusuion
     noise_tensor_like_x = torch.zeros_like(x_0)
     x_0_copy = torch.clone(x_0)
+    t = T - t - 1
     # produce a noised image 
     x_noised, noise = forward_diffusion_sample(x_0, t, device)
     # get the specific part from noised image and integrage it to the image
-    x_0_copy[0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)] = x_noised[0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)]
-    # need to be similar size with the x_0 
-    noise_tensor_like_x[0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)] = noise[0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)]
+    for idx, _ in enumerate(x_0): 
+        x_0_copy[idx, 0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)] -= x_noised[idx, 0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)]
+        # need to be similar size with the x_0 
+        noise_tensor_like_x[idx, 0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)] = noise[idx, 0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)]
     return x_0_copy , noise_tensor_like_x
 
 # Pre-calculated values 
@@ -277,7 +279,7 @@ posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
 # %% 
 # Simulate forward diffusion
-image = next(iter(tensor_littel_all_images_dataloader))[0]
+image = next(iter(tensor_littel_all_images_dataloader))
 print(image.dtype)
 
 plt.figure(figsize=(15,15))
@@ -295,8 +297,8 @@ for idx in range(0, T, stepsize):
 
 # %% 
 # Simulate corrupt diffusion
-image = next(iter(tensor_littel_all_images_dataloader))[0]
-print(image.dtype)
+image = next(iter(tensor_littel_all_images_dataloader))
+print(image.shape)
 
 plt.figure(figsize=(15,15))
 plt.axis('off')
@@ -311,7 +313,6 @@ for idx in range(0, T, stepsize):
     t = torch.Tensor([idx]).type(torch.int64)
     plt.subplot(1, num_images+1, int(idx/stepsize) + 1)
     img, noise = forward_corruption_sample(image, t, top_left_x, top_left_y ,height ,witdh )
-    # print(img.shape) # [1, 320, 320]
     show_tensor_image(img)
 
 # %%
@@ -387,8 +388,7 @@ class SimpleUnet(nn.Module):
         self.time_mlp = nn.Sequential(
                         SinusoidalPositionEmbeddings(time_emb_dim),
                         nn.Linear(time_emb_dim, time_emb_dim),
-                        nn.ReLU()   
-                    )
+                        nn.ReLU()   )
         
         # Initial layer
         self.conv0 = nn.Conv2d(image_channels, down_channels[0], 3, padding= 1)
@@ -461,6 +461,7 @@ def sample_timestep(x, t):
     sqrt_recip_alphas_t = get_index_from_list(sqrt_recip_alphas, t, x.shape)
     x = x.float()
     # Call model (current image - noise prediction)
+    # takes noise and convert it to denoised image 
     model_mean = sqrt_recip_alphas_t * (x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t )
     posterior_variance_t = get_index_from_list(posterior_variance, t, x.shape)
     
@@ -480,26 +481,27 @@ def sample_plot_image():
     height , witdh = 100, 100
     # img = torch.randn((1, 1, img_size, img_size), device=device)
     # get a random image from dataset, and corrupt it to last T value = total gaussian distrubution 
-    image = next(iter(tensor_littel_all_images_dataloader))
-    image, noise = forward_corruption_sample(image, torch.Tensor([T-1]).type(torch.int64), top_left_x, top_left_y ,height ,witdh )
-    
+    images = next(iter(tensor_littel_all_images_dataloader))
+    images, noises = forward_corruption_sample(img, torch.Tensor([1999]).type(torch.int64), top_left_x, top_left_y ,height ,witdh )
+
+    num_images = 20
+    stepsize = int(T/num_images)
+    # initial image 
     plt.figure(figsize=(15,15))
     plt.axis('off')
-
-    num_images = 10
-    stepsize = int(T/num_images)
-
+    plt.subplot(1, num_images, int(0/stepsize)+1)
+    show_tensor_image(img.detach().cpu())
+    
     for i in range(0,T)[::-1]:
         t = torch.full((1,), i, device=device, dtype=torch.long)
-
-        print(noise.shape)
-        noise = sample_timestep(noise, t)
+        print(noises.shape)
+        denoised_image = sample_timestep(noises, t)
         # Edit: This is to maintain the natural range of the distribution
-        noise = torch.clamp(noise, -1.0, 1.0)
-        image[0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)] = noise[0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)]
+        denoised_image = torch.clamp(denoised_image, -1.0, 1.0)
+        images[0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)] += denoised_image[0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)]
         if i % stepsize == 0:
-            plt.subplot(1, num_images, int(i/stepsize)+1)
-            show_tensor_image(image.detach().cpu())
+            plt.subplot(1, num_images, int(i+1/stepsize)+1)
+            show_tensor_image(images.detach().cpu())
     plt.show() 
 
 
@@ -542,7 +544,7 @@ for epoch in range(epochs):
 
       if step % 64 == 0 :
         print(f"Epoch {epoch} | step {step:03d} Loss: {loss.item()} ")
-        sample_plot_image()
+        # sample_plot_image()
         #wandb.log({"epoch": epoch, "loss": loss}, step=step)
     # save the model
     checkpoint = {'state_dict' : model.state_dict(), 'optimizer': optimizer.state_dict() }
@@ -566,7 +568,7 @@ model.to(device)
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 epochs = 100
 
-load_model_filename = "my_checkpoint_search_four_2.pth.tar"
+load_model_filename = "my_checkpoint_corrupt.pth.tar"
 
 loadCheckPoint(torch.load(load_model_filename, map_location=torch.device('cpu')))
 
