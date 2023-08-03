@@ -12,3 +12,7 @@ Some Examples obtained by slightly adjusted DDPM model on  torchvision.datasets.
 Nevertheless, this model is not suitable for more complex images than standar MNIST or CIFAR100 datasets,
 ## GANs ( Generative adversarial network ): 
 In a GAN, two neural networks contest with each other in the form of a zero-sum game, where one agent's gain is another agent's loss. GANs has two neural networks. One is Discriminator and the other one is Generator. Generator generates fake images and Discriminator discriminates between the fake and given real image. If the generator can generate an image which the discriminator is not able to separate between the real and fake, we call the neural network fully trained. Generators receive a random (gaussian distribution ) image and generate the fake image. 
+
+## DDIMs ( Denoising Diffusion Implict Models ): 
+Implicit probabilistic models, also known as implicit generative models or implicit models, are a class of machine learning models used for generating data. Unlike explicit probabilistic models, which directly model the probability distribution of the data, implicit models do not explicitly represent the probability distribution. Instead, they learn to generate samples from the data distribution without directly modeling it.
+The key characteristic of implicit probabilistic models is that they do not explicitly compute the probability of generating a specific data point. Instead, they rely on a learning process that implicitly encodes the distribution of the data in their learned parameters.
