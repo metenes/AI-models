@@ -1,5 +1,10 @@
 #%% 
 # Helper functions 
+from typing import List
+import torch
+import torch.nn.functional as F
+from torch import nn
+
 
 # Normaliztion 
 def normalization(channels: int):
@@ -11,15 +16,23 @@ def swish(x):
 
 class GaussianDistribution:
     def __init__(self, parameters): 
-        self.mean, log_var = torch.chunk
+        # torch.chunk(input, chunks, dim=0) = Attempts to split a tensor into the specified number of chunks. Each chunk is a view of the input tensor.
+        self.mean, log_var = torch.chunk(parameters, 2, dim=1)
+        # torch.clamp(input, min=None, max=None, ) = Clamps all elements in input into the range [ min, max ].
+        self.log_var = torch.clamp(log_var, -30.0, 20.0)
+        # reparameter trick 
+        self.std = torch.exp(0.5 * self.log_var)
 
+    def sample(self): 
+        return self.mean + self.std * torch.randn_like(self.std)
+    
 # Resnet Block 
 class ResnetBlock(nn.Module): 
     def __init__(self, in_channels, out_channels): 
         super().__init__()
         # first layer
         self.norm1 = normalization(in_channels)
-        self.conv1 = nn.Conv2d(in_channels, out_channelas, 3, stride=1, padding=1)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, stride=1, padding=1)
         # second layer
         self.norm2 = normalization(out_channels)
         self.conv2 = nn.Conv2d(out_channels, out_channels, 3, stride=1, padding=1)
@@ -42,9 +55,31 @@ class ResnetBlock(nn.Module):
         h = self.conv2(h)
 
         return self.shortcut(x) + h
+    
+# Upsamle Block 
+class UpSample(nn.Module): 
+    def __init__(self, channels ): 
+        super().__init__()
+        self.conv = nn.Conv2d(channels, channels, 3 ,padding=1)
+    
+    def forward(self, x): 
+        # Upsampling = interpolate 
+        x = F.interpolate(x, scale_factor=2.0, mode="nearest")
+        return self.conv(x)
 
+# Downsample Block 
+class DownSample(nn.Module): 
+    def __init__(self, channels):
+        super().__init__()
+        self.conv = nn.Conv2d( channels, channels, 3, stride=2, padding=0 )
 
+    def forward(self, x): 
+        # add pad firts becasuse stride = 2 so, size will be decreased 
+        x = F.pad(x, (0, 1, 0, 1), mode="constant", value=0)
+        return self.conv(x)
 
+#%% 
+# AutoEncoder 
 class Encoder(nn.Module): 
     def __init__(self, *, channels, channel_multipliers, n_resnet_blocks, in_channels, z_channels):
       """
@@ -68,7 +103,8 @@ class Encoder(nn.Module):
         # resnet block inside the down list 
         resnet_blocks = nn.ModuleList()
         for _ in range(n_resnet_blocks):
-            resnet_blocks.append(Res(channels_list[i], channels_list[i+1]))
+            resnet_blocks.append(ResnetBlock(channels, channels_list[i + 1]))
+            channels = channels_list[i + 1]
 
 
 # Autoencoder
@@ -98,4 +134,3 @@ class DiffusionWrapper(nn.Module):
         # give latent variables to Unet Model 
         return self.diffusion_model(x, time_step, context)
     
-class
