@@ -1,136 +1,267 @@
 #%% 
 # Helper functions 
-from typing import List
-import torch
+from PIL import Image
+from torch.autograd import Variable
+import enum
 import torch.nn.functional as F
-from torch import nn
+from torchvision.utils import save_image
+import torch
+import math
+
+def standardize(img):
+    mean = torch.mean(img)
+    std = torch.std(img)
+    img = (img - mean) / std
+    return img 
+
+# tensor version 
+def standardize_tensor(img):
+    mean = img.mean()
+    std = img.std()
+    img = (img - mean) / std
+    return img
+
+def betas_for_alpha_cumprod_fn(timestep, alpha_cumprod_function, max_beta=0.999):
+    """
+        Create a beta schedule that discretizes the given alpha_t_bar function,
+        which defines the cumulative product of (1-beta) over time from t = [0,1].
+
+        alpha_cumprod_function is the lambda that takes an argument t from 0 to 1 and
+                      produces the cumulative product of (1-beta) up to that
+                      part of the diffusion process.
+
+        alpha_cumprod_function(t2)/alpha_cumprod_function(t1) is to obtain a_t at time t
+        a_t * alpha_cumprod_function(t1) = alpha_cumprod_function(t2)
+
+    """
+    betas = []
+    for i in range(timestep): 
+        t1 = i / timestep # t
+        t2 = (i + 1) / timestep # t + 1
+        betas.append(min(1 - alpha_cumprod_function(t2)/alpha_cumprod_function(t1), max_beta ))
+    return np.array(betas)
 
 
-# Normaliztion 
-def normalization(channels: int):
-    return nn.GroupNorm(num_groups=32, num_channels=channels, eps=1e-6)
+def get_beta_schedule(name, timestep, s): 
+    if name == "linear" : 
+        # linear beta schedule
+        scale = 1000 / timestep
+        beta_start = scale * 0.0001
+        beta_end = scale * 0.02
+        return np.linspace( beta_start, beta_end, timestep, dtype=np.float64)
+    elif name == "cosine" : 
+        return betas_for_alpha_cumprod_fn(timestep,  lambda t: math.cos((t + 0.008) / 1.008 * math.pi / 2) ** 2)
+    else :
+        return -1
 
-# Swish  
-def swish(x): 
-    return x*torch.sigmoid(x)
+def extract_into_tensor(arr, t, shape):
+    """
+    Get t th element from the arr, reshape/tensor 
+    arr : 1D array                              
+    t : timestep    
+    """
+    res = torch.from_numpy(arr).to(device=t.device)[t].float()
+    while len(res.shape) < len(shape): 
+        res = res[..., None]
+    return res.expand(shape)
 
-class GaussianDistribution:
-    def __init__(self, parameters): 
-        # torch.chunk(input, chunks, dim=0) = Attempts to split a tensor into the specified number of chunks. Each chunk is a view of the input tensor.
-        self.mean, log_var = torch.chunk(parameters, 2, dim=1)
-        # torch.clamp(input, min=None, max=None, ) = Clamps all elements in input into the range [ min, max ].
-        self.log_var = torch.clamp(log_var, -30.0, 20.0)
-        # reparameter trick 
-        self.std = torch.exp(0.5 * self.log_var)
 
-    def sample(self): 
-        return self.mean + self.std * torch.randn_like(self.std)
+
+# These methods used to adjust the type of model - Black Box
+class ModelMeanType(enum.Enum):
+    """
+    Which type of output the model predicts.
+    """
+    PREVIOUS_X = enum.auto()  # the model predicts x_{t-1}
+    START_X = enum.auto()  # the model predicts x_0
+    EPSILON = enum.auto()  # the model predicts epsilon
+
     
-# Resnet Block 
-class ResnetBlock(nn.Module): 
-    def __init__(self, in_channels, out_channels): 
-        super().__init__()
-        # first layer
-        self.norm1 = normalization(in_channels)
-        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, stride=1, padding=1)
-        # second layer
-        self.norm2 = normalization(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, 3, stride=1, padding=1)
+class ModelVarType(enum.Enum):
+    """
+    What is used as the model's output variance.
 
-        if in_channels != out_channels: 
-            # this is for adjusting the skip connetions size, no kernel or padding 
-            self.shortcut = nn.Conv2d(in_channels, out_channels, 1, stride=1, padding=0)
-        else : 
-            self.shortcut = nn.Identity()
-    
-    def forward(self, x): 
-        # [batch_size, channels, height, width]
-        h = x 
-        h = self.norm1(h)
-        h = swish(h)
-        h = self.conv1(h)
+    The LEARNED_RANGE option has been added to allow the model to predict
+    values between FIXED_SMALL and FIXED_LARGE, making its job easier.
+    """
 
-        h = self.norm2(h)
-        h = swish(h)
-        h = self.conv2(h)
+    LEARNED = enum.auto()
+    FIXED_SMALL = enum.auto()
+    FIXED_LARGE = enum.auto()
+    LEARNED_RANGE = enum.auto()
 
-        return self.shortcut(x) + h
-    
-# Upsamle Block 
-class UpSample(nn.Module): 
-    def __init__(self, channels ): 
-        super().__init__()
-        self.conv = nn.Conv2d(channels, channels, 3 ,padding=1)
-    
-    def forward(self, x): 
-        # Upsampling = interpolate 
-        x = F.interpolate(x, scale_factor=2.0, mode="nearest")
-        return self.conv(x)
+class LossType(enum.Enum):
+    MSE = enum.auto()  # use raw MSE loss (and KL when learning variances)
+    RESCALED_MSE = (
+        enum.auto()
+    )  # use raw MSE loss (with RESCALED_KL when learning variances)
+    KL = enum.auto()  # use the variational lower-bound
+    RESCALED_KL = enum.auto()  # like KL, but rescale to estimate the full VLB
 
-# Downsample Block 
-class DownSample(nn.Module): 
-    def __init__(self, channels):
-        super().__init__()
-        self.conv = nn.Conv2d( channels, channels, 3, stride=2, padding=0 )
-
-    def forward(self, x): 
-        # add pad firts becasuse stride = 2 so, size will be decreased 
-        x = F.pad(x, (0, 1, 0, 1), mode="constant", value=0)
-        return self.conv(x)
-
-#%% 
-# AutoEncoder 
-class Encoder(nn.Module): 
-    def __init__(self, *, channels, channel_multipliers, n_resnet_blocks, in_channels, z_channels):
-      """
-        in_channels is the number of channels in the image
-        channels is the number of channels in the first convolution layer 
-        channel_multipliers are the multiplicative factors for the number of channels in the subsequent blocks 
-        z_channels is the number of channels in the embedding space
-        n_resnet_blocks is the number of resnet layers at each resolution 
-      """
-    
-      super().__init__()
-      self.conv_in = nn.Conv2d(in_channels, channels, 3, stride=1, padding=1) # first conv layer img -> first channel of latent space
-      # make channels in a list for next channels of latent space 
-      # we are multipling with one because of the first conv
-      channels_list = [m * channels for m in ([1]+channel_multipliers)]
-      # Encoder 
-      self.down = nn.ModuleList()
-      # Number of blocks of different resolutions. The resolution is halfed at the end each top level block 
-      n_resolution = len(channel_multipliers)
-      for i in range(n_resolution): 
-        # resnet block inside the down list 
-        resnet_blocks = nn.ModuleList()
-        for _ in range(n_resnet_blocks):
-            resnet_blocks.append(ResnetBlock(channels, channels_list[i + 1]))
-            channels = channels_list[i + 1]
+    def is_vb(self):
+        return self == LossType.KL or self == LossType.RESCALED_KL
 
 
-# Autoencoder
-class Autoencoder(nn.Module):
-    def __init__(self, decoder, encoder ):
+class GaussianDiffusion: 
+    """
+    rescale_timesteps: if True, pass floating point timesteps into the
+                        model so that they are always scaled like in the
+                        original paper (0 to 1000).
 
-#%% 
-"""
-    Latent diffusion models use an auto-encoder to map between image space and
-    latent space. The diffusion model works on the latent space, which makes it
-    a lot easier to train. 
-"""
-# We will first code the latent diffusion model but for that, we will need a Diffusion Unet structer
-from labml_nn.diffusion.stable_diffusion.model.autoencoder import Autoencoder # Autocoder which will be used for, 
-# Encoding the normal image to latent space
-# Decode the output of Unet in latent space to the normal image
-from labml_nn.diffusion.stable_diffusion.model.unet import UNetModel # will be Normal Unet which will work on latent space
-
-class DiffusionWrapper(nn.Module): 
-    def __init__(self,
-                 diffusion_model: UNetModel): 
+    """
+    def __init__(self, *, 
+                 betas, 
+                 model_mean_type, 
+                 model_var_type, 
+                 loss_type, 
+                 rescale_timestep = False): 
         # Init
-        super().__init__()
-        self.diffusion_model = diffusion_model
+        self.model_mean_type = model_mean_type
+        self.model_var_type = model_var_type
+        self.loss_type = loss_type
+        self.rescale_timestep = rescale_timestep
+        self.betas = np.array(betas, dtype=np.float64) # to increase accuracy
+        self.timestep_num = int(self.betas.shape[0])
 
-    def forward(self, x, time_step, context ): 
-        # give latent variables to Unet Model 
-        return self.diffusion_model(x, time_step, context)
+        # pre-define alphas in np
+        self.alphas = 1.0 - betas
+        self.alphas_cumprod = np.cumprod(self.alphas, axis=0)
+        self.alphas_cumprod_prev = np.append(1.0, self.alphas_cumprod[:-1])
+        self.alphas_cumprod_next = np.append(self.alphas_cumprod[1:], 0.0)
+
+        # calculations for diffusion q(x_t | x_{t-1})  = Forward process in np
+        self.sqrt_alphas_cumprod = np.sqrt(self.alphas_cumprod)
+        self.sqrt_one_minus_alphas_cumprod = np.sqrt(1.0 - self.alphas_cumprod)
+        self.log_one_minus_alphas_cumprod = np.log(1.0 - self.alphas_cumprod)
+        self.sqrt_recip_alphas_cumprod = np.sqrt(1.0 / self.alphas_cumprod)
+        self.sqrt_recipm1_alphas_cumprod = np.sqrt(1.0 / self.alphas_cumprod - 1)
+
+        # calculations for posterior q(x_{t-1} | x_t, x_0) = Backward process in np
+        self.posterior_variance = ( betas * (1.0 - self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod) )
+        self.posterior_log_variance_clipped = np.log( np.append(self.posterior_variance[1], self.posterior_variance[1:]) )
+        self.posterior_mean_coef1 = ( betas * np.sqrt(self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod) )
+        self.posterior_mean_coef2 = ( (1.0 - self.alphas_cumprod_prev) * np.sqrt(self.alphas) / (1.0 - self.alphas_cumprod) )
+
+    def q_mean_variance(self, x_0, t): 
+        """ 
+        Get the distribution elements q(x_t | x_0) = Forward step
+            N( sqrt_alphas_cumprod[t] * x_0 , one_minus_alphas_cumprod )
+            method will return the mean , variance and log variance for the reparam. method
+        """
+
+        mean = ( extract_into_tensor( self.sqrt_alphas_cumprod, t, x_0.shape ) ) * x_0
+        variance = extract_into_tensor( 1.0 - self.alphas_cumprod, t, x_0.shape ) 
+        log_variance = extract_into_tensor( self.log_one_minus_alphas_cumprod, t, x_0.shape )
+
+        return mean, variance, log_variance
+
+    def q_sample(self, x_0, t, noise= None): 
+        """
+        Get the noised image at t : q(x_t | x_0) = Forward step
+            Using reparam. method
+            sqrt_alphas_cumprod[t] * x_0 + one_minus_alphas_cumprod[t] * eps_noise
+        """
+        if noise is None: 
+            noise = torch.randn_like(x_0)
+        assert noise.shape == x_0.shape # check for shape validity 
+        # reparam method 
+        return extract_into_tensor(self.sqrt_alphas_cumprod, t, x_0.shape) * x_0 + extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_0.shape) * noise
+
+    def q_posterior_mean_variance(self, x_0, x_t, t):
+        """
+        Compute the mean and variance for q( x_{t-1} | x_t, x_0 ) = Backward diffusion 
+        """
+        assert x_0.shape == x_t.shape # both dependent variable must same size 
+
+        post_mean = extract_into_tensor(self.posterior_mean_coef1, t, x_t.shape) * x_0 + extract_into_tensor(self.posterior_mean_coef2, t, x_t.shape) * x_t
+        post_variance = extract_into_tensor(self.posterior_variance, t, x_t.shape)
+        post_log_variance_clipped = extract_into_tensor(self.posterior_log_variance_clipped, t, x_t.shape)
+        
+        # Calcualtions must be done 
+        assert ( post_mean.shape[0] == post_variance.shape[0] == post_log_variance_clipped.shape[0] == x_0.shape[0] )
+
+    def scale_timesteps(self, t): 
+        if self.rescale_timestep: 
+            # means we t to be between 1000 and 0 as same as in the original paper
+            return t.float() * (1000.0 / self.timestep_num)
+        # else return same t
+        return t 
+
+    def p_mean_variance( self, model, x, t, clip_denoised=True, denoised_fn=None, model_kwargs=None ):
+        """
+        Apply the model to get p( x_{t-1} | x_t ) which is estimation of q( x_{t-1} | x_t, x_0 ) and prediction of initial x_t , x0 
+        x : the [N x C x ...] tensor at time t.
+        t : a 1-D Tensor of timesteps.
+        model_kwargs: if not None, a dict of extra keyword arguments to pass to the model. This can be used for conditioning.
+            conditioning means stable diffusion type such as a keyword from NLPs 
+
+        """
+        if model_kwargs is None: 
+            model_kwargs = {}
+        # [ batch_num, channel_num, height, withd ] 
+        batch_num, channel_num = x.shape[:2]
+
+        # t must in shape of batch number as we are taking batch_num images
+        assert t.shape ==(batch_num,)
+
+        model_output = model(x, self.scale_timesteps(t), **model_kwargs )
+
+        # This code block is to adjust the Model type, black box 
+        if self.model_var_type in [ModelVarType.LEARNED, ModelVarType.LEARNED_RANGE]:
+            assert model_output.shape == (batch_num, channel_num * 2, *x.shape[2:])
+            model_output, model_var_values = torch.split(model_output, channel_num, dim=1)
+            if self.model_var_type == ModelVarType.LEARNED:
+                model_log_variance = model_var_values
+                model_variance = torch.exp(model_log_variance)
+            else:
+                min_log = extract_into_tensor(
+                    self.posterior_log_variance_clipped, t, x.shape
+                )
+                max_log = extract_into_tensor(np.log(self.betas), t, x.shape)
+                # The model_var_values is [-1, 1] for [min_var, max_var].
+                frac = (model_var_values + 1) / 2
+                model_log_variance = frac * max_log + (1 - frac) * min_log
+                model_variance = torch.exp(model_log_variance)
+        else:
+            model_variance, model_log_variance = {
+                # for fixedlarge, we set the initial (log-)variance like so
+                # to get a better decoder log likelihood.
+                ModelVarType.FIXED_LARGE: (
+                    np.append(self.posterior_variance[1], self.betas[1:]),
+                    np.log(np.append(self.posterior_variance[1], self.betas[1:])),
+                ),
+                ModelVarType.FIXED_SMALL: (
+                    self.posterior_variance,
+                    self.posterior_log_variance_clipped,
+                ),
+            }[self.model_var_type]
+            model_variance = extract_into_tensor(model_variance, t, x.shape)
+            model_log_variance = extract_into_tensor(model_log_variance, t, x.shape)
+
+        # get the x_0 with given function 
+        def process_x_0(x): 
+            # to predict x_0, we use our denoised function which is same as DDPM
+            if denoised_fn is not None: 
+                x = denoised_fn(x)
+            # This is for clamps all elements in input x into the range [ min, max ]
+            # in this case [-1, 1]
+            if clip_denoised: 
+                return x.clamp(-1,1)
+            return x
+        
+        # Predicts x_0 from x_t and x_model which is models output for the noise prediction 
+        # Will be usefull when we will change x_0s in main equation with x_t and predicted noise based formulas
+        def predict_x_0_from_x_t_and_x_modelOut( self, x_t , t, x_modelOut ):
+            assert x_t.shape == x_modelOut.shape
+
     
+        if self.model_mean_type == ModelMeanType.PREVIOUS_X:
+            pred_x_0 = 
+
+
+
+
+
+
+
+
