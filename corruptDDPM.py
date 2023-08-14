@@ -1,184 +1,3 @@
-#%%
-# Import Pytorch
-import torch
-from torch import nn
-# Import plot
-import matplotlib.pyplot as plt
-# Import computer vision
-import torchvision
-from torchvision import datasets
-from torchvision import transforms
-from torchvision.transforms import ToTensor
-# Batch
-from torch.utils.data import DataLoader
-from torch.utils.data.dataloader import T
-import os 
-# Image settings
-from nilearn import plotting
-import pylab as plt
-import numpy as np
-import nibabel as nb
-
-# Access data test directly from second folder
-img = nb.load(filename = "<FILENAME>")
-print(img.shape)
-# shape of one the images is (256, 320, 320)
-print(f"shows the type of the data on disk {img.get_data_dtype()}")
-# get the numpy array with fdata()
-data_nummpy = img.get_fdata()
-# display the nii.gz 
-plt.imshow(data_nummpy[:, :, data_nummpy.shape[2] // 2].T, cmap='Greys_r')
-print(data_nummpy.shape)
-
-# %%
-# Display all the nii.gz images in dataset
-def prep_data_from_dir(file_dir_path, num_samples=20, cols=4):
-    """ Plots some samples from the dataset """
-    i = 0 
-    list_tensor_imgs = []
-    # list_img_paths = []
-    for filename in os.listdir(file_dir_path):
-        if i == num_samples : 
-            break
-        if filename.endswith('.nii.gz'): # niffy 
-            nb.load( os.path.join(file_dir_path, filename) ) 
-            print(os.path.join(file_dir_path, filename)) # file names
-            data_nummpy = img.get_fdata()
-            list_tensor_imgs.append(torch.from_numpy(data_nummpy)) # save the numpy to torch tensor
-            # list_img_paths.append(os.path.join(file_dir_path, filename)) # save the file_path
-            i += 1 
-    return list_tensor_imgs
-    
-# Display all the nii.gz images in dataset
-def display_data_from_dir(file_dir_path, num_samples=20, cols=4):
-    """ Plots some samples from the dataset """
-    plt.figure(figsize=(15,15)) # figure size for display
-    i = 0 
-    for filename in os.listdir(file_dir_path):
-        if i == num_samples : 
-            break
-        if filename.endswith('.nii.gz'): # niffy 
-            nb.load( os.path.join(file_dir_path, filename) ) 
-            print(os.path.join(file_dir_path, filename)) # file names
-            data_nummpy = img.get_fdata()
-            plt.subplot(int(num_samples/cols) + 1, cols, i + 1)
-            plt.imshow(data_nummpy[:, :, data_nummpy.shape[2] // 2].T, cmap='Greys_r')
-            i += 1 
-
-file_dir_path = "<FILENAME>"
-
-list_tensor_volumes = prep_data_from_dir(file_dir_path, 100)
-display_data_from_dir(file_dir_path, 20)
-
-print(list_tensor_volumes[0].dtype) # dtype = float64 , type = torch.float64 tensor
-print(len(list_tensor_volumes))
-
-# split array 
-train_data_initial = list_tensor_volumes[0:int(len(list_tensor_volumes)*(2/3))]
-print(len(train_data_initial))
-test_data_initial = list_tensor_volumes[int(len(list_tensor_volumes)*(2/3)):]
-print(len(test_data_initial))
-
-print(f"size of a volume {len(list_tensor_volumes[0])}" )
-plt.imshow(list_tensor_volumes[0][128], cmap='Greys_r')
-#%% 
-"""
-# WandB
-# start a new wandb run to track this script
-import wandb
-
-wandb.init(
-    # set the wandb project where this run will be logged
-    project="DDPM initial-II",
-    
-    # track hyperparameters and run metadata
-    config={
-    "learning_rate": 0.001,
-    "architecture": "DDPM",
-    "dataset": "MRI dataset",
-    "epochs": 100,
-    }
-) 
-"""
-
-# %%
-# Custom Datasets 
-import os
-import pathlib
-import torch
-from PIL import Image
-from torch.utils.data import Dataset
-from torchvision import transforms
-from typing import Tuple, Dict, List
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms, utils
-
-# Custom Dataset 
-class CustomDataset(Dataset):
-    def __init__(self, images, transform=None):
-        self.images = images
-        self.transform = transform
-    def __getitem__(self, idx):
-        image = self.images[idx]      
-        return image
-    def __len__(self):
-        return len(self.images)
-    
-# Data visualizer for datasets
-def visualize_volume_dataset(dataset, num_images = 20): 
-    fig = plt.figure(figsize=(20, 20))
-    for idx in range(0,num_images): 
-        data = dataset[idx]
-        ax = fig.add_subplot(1, num_images, idx+1)
-        # print(f"data shape {data.shape}") # Debug 
-        ax.imshow(data[:, :, 0].T, cmap='Greys_r')
-    plt.show()
-
-# custom dataset for the niffty file MRI 
-volume_custom_dataset = CustomDataset(list_tensor_volumes)
-# visualize all volumes in half view
-visualize_volume_dataset(volume_custom_dataset)
-
-# Display the tensor images
-def show_tensor_image(image): 
-    if len(image.shape) == 4: 
-        image = image[0,:,:,:]
-    plt.imshow(image.permute(1,2,0), cmap='Greys_r')
-
-
-# For all volumes 
- 
-# concat all volumes into single list
-list_tensor_all_volumes = torch.stack(list_tensor_volumes) 
-tensor_all_volumes = torch.DoubleTensor(list_tensor_all_volumes)
-# reshape : get all images inside all voluems into single list [ Number of imgs, H, W ]
-tensor_all_images = torch.reshape(tensor_all_volumes, [-1, 320, 320])
-# add the color channel 
-tensor_all_images = tensor_all_images.unsqueeze(1)
-print(tensor_all_images.shape) # torch.Size([25600, 1, 320, 320])
-# dataset
-tensor_all_images_dataset = CustomDataset(tensor_all_images)
-plt.imshow( tensor_all_images_dataset[0].permute(1,2,0) , cmap='Greys_r' )
-
-"""
-# concat all volumes into single list
-list_tensor_littel_all_volumes = torch.stack( [ list_tensor_volumes[0], list_tensor_volumes[1], list_tensor_volumes[2], list_tensor_volumes[3], list_tensor_volumes[4], list_tensor_volumes[5] ]) 
-tensor_littel_all_volumes = torch.DoubleTensor(list_tensor_littel_all_volumes)
-# reshape : get all images inside all voluems into single list [ Number of imgs, H, W ]
-tensor_littel_all_images = torch.reshape(tensor_littel_all_volumes, [-1, 320, 320])
-# add the color channel 
-tensor_littel_all_images = tensor_littel_all_images.unsqueeze(1)
-
-print(tensor_littel_all_images.shape) # torch.Size([512, 1, 320, 320])
-show_tensor_image(tensor_littel_all_images[0])
-# dataset
-tensor_littel_all_images_dataset = CustomDataset(tensor_littel_all_images)
-plt.imshow( tensor_littel_all_images_dataset[0].permute(1,2,0) , cmap='Greys_r' )
-"""
-
 #%% 
 # DDPM methods
 # Import Pytorch
@@ -203,7 +22,7 @@ BATCH_SIZE = 8
 IMG_SIZE = 320
 
 # dataloader and shuffel
-tensor_littel_all_images_dataloader = DataLoader(tensor_all_images_dataset, batch_size= BATCH_SIZE, shuffle=True, drop_last=True)
+tensor_all_images_dataloader = DataLoader(tensor_all_images_dataset, batch_size= BATCH_SIZE, shuffle=True, drop_last=True)
 
 # Helper methods 
 def linear_beta_schedule(timestep, start = 0.0001, end = 0.02): 
@@ -279,7 +98,7 @@ posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
 # %% 
 # Simulate forward diffusion
-image = next(iter(tensor_littel_all_images_dataloader))
+image = next(iter(tensor_all_images_dataloader))
 print(image.dtype)
 
 plt.figure(figsize=(15,15))
@@ -297,7 +116,7 @@ for idx in range(0, T, stepsize):
 
 # %% 
 # Simulate corrupt diffusion
-image = next(iter(tensor_littel_all_images_dataloader))
+image = next(iter(tensor_all_images_dataloader))
 print(image.shape)
 
 plt.figure(figsize=(15,15))
@@ -481,37 +300,37 @@ def sample_plot_image():
     height , witdh = 100, 100
     # img = torch.randn((1, 1, img_size, img_size), device=device)
     # get a random image from dataset, and corrupt it to last T value = total gaussian distrubution 
-    images = next(iter(tensor_littel_all_images_dataloader))
-    images, noises = forward_corruption_sample(img, torch.Tensor([1999]).type(torch.int64), top_left_x, top_left_y ,height ,witdh )
-
-    num_images = 20
+    images = next(iter(tensor_all_images_dataloader))
+    images, not_used = forward_corruption_sample(images, torch.Tensor([1999]).type(torch.int64), top_left_x, top_left_y ,height ,witdh )
+    num_images = 21
     stepsize = int(T/num_images)
     # initial image 
     plt.figure(figsize=(15,15))
     plt.axis('off')
-    plt.subplot(1, num_images, int(0/stepsize)+1)
+    plt.subplot(1, num_images, 1)
     show_tensor_image(img.detach().cpu())
-    
+    count = 2
+    # Backward process 
     for i in range(0,T)[::-1]:
         t = torch.full((1,), i, device=device, dtype=torch.long)
-        print(noises.shape)
-        denoised_image = sample_timestep(noises, t)
+        noise = sample_timestep(images, t)
+        print(noise.shape)
         # Edit: This is to maintain the natural range of the distribution
-        denoised_image = torch.clamp(denoised_image, -1.0, 1.0)
-        images[0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)] += denoised_image[0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)]
+        noise = torch.clamp(noise, -1.0, 1.0)
+        # Recover previous step 
+        images[:, 0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)] += noise[:, 0, top_left_y:(top_left_y + height), top_left_x:(top_left_x + witdh)]
         if i % stepsize == 0:
-            plt.subplot(1, num_images, int(i+1/stepsize)+1)
+            plt.subplot(1, num_images, count)
+            count += 1
             show_tensor_image(images.detach().cpu())
     plt.show() 
-
-
 
 # %%
 # DO NOT ITERATE IF YOU HAVE SAVED MODEL
 # Training / Save
 from torch.optim import Adam
 import random
-def saveCheckPoint(state, filename = "my_checkpoint_corrupt.pth.tar"): 
+def saveCheckPoint(state, filename = "my_checkpoint_corrupt_new_2.pth.tar"): 
     print("-- Checkpoint reached --")
     torch.save(state,filename)
 
@@ -520,23 +339,21 @@ def loadCheckPoint(state):
     model.load_state_dict(state['state_dict'])
     optimizer.load_state_dict(state['optimizer'])
 
-
 # device agnostic code
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model.to(device)
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 epochs = 100
 
-load_model = False
-load_model_filename = "my_checkpoint_corrupt.pth.tar"
+load_model = True
+load_model_filename = "my_checkpoint_corrupt_new_1.pth.tar"
 
 if(load_model == True): 
     loadCheckPoint(torch.load(load_model_filename))
 
 for epoch in range(epochs):
-    for step, batch in enumerate(tensor_littel_all_images_dataloader):
+    for step, batch in enumerate(tensor_all_images_dataloader):
       optimizer.zero_grad()
-
       t = torch.randint(0, T, (1,), device = device).long()
       loss = get_loss(model, batch.to(device), t)
       loss.backward()
@@ -545,7 +362,7 @@ for epoch in range(epochs):
       if step % 64 == 0 :
         print(f"Epoch {epoch} | step {step:03d} Loss: {loss.item()} ")
         # sample_plot_image()
-        #wandb.log({"epoch": epoch, "loss": loss}, step=step)
+        # wandb.log({"epoch": epoch, "loss": loss}, step=step)
     # save the model
     checkpoint = {'state_dict' : model.state_dict(), 'optimizer': optimizer.state_dict() }
     saveCheckPoint(checkpoint)
@@ -554,13 +371,18 @@ for epoch in range(epochs):
 # DO NOT ITERATE IF YOU HAVE SAVED MODEL
 # %%
 # Test / Save
-""" 
+""" """
 from torch.optim import Adam
 def loadCheckPoint(state):
     print(" Checkpoint loading ")
+    # TODO
+    # create tensor from the dict ojects 
+    # tensor_dict = {key: torch.tensor(value) for key, value in state.items()}
+    # print(tensor_dict['state_dict'].shape) 
+    # print(tensor_dict['optimizer'].shape) 
+
     model.load_state_dict(state['state_dict'])
     optimizer.load_state_dict(state['optimizer'])
-
 
 # device agnostic code
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -568,12 +390,11 @@ model.to(device)
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 epochs = 100
 
-load_model_filename = "my_checkpoint_corrupt.pth.tar"
+load_model_filename = "my_checkpoint_corrupt_new_2.pth.tar"
 
 loadCheckPoint(torch.load(load_model_filename, map_location=torch.device('cpu')))
 
 for epoch in range(epochs):
     sample_plot_image()
-"""
 
 # %%
